@@ -1,0 +1,104 @@
+@layer primitives {
+  .ui-slider {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ui-slider__row {
+    display: flex;
+    align-items: center;
+    gap: var(--s-10);
+    min-height: var(--size-btn);
+  }
+
+  .ui-slider__track {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 2px;
+    border-radius: 0;
+    background: var(--line2);
+  }
+  .ui-slider__track::before {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+  }
+
+  .ui-slider__fill {
+    border-radius: 0;
+    background: var(--ink);
+  }
+
+  .ui-slider__thumb {
+    top: 50%;
+    width: 4px;
+    height: 14px;
+    border-radius: var(--r-2xs);
+    background: var(--ink);
+    transition:
+      background-color var(--dur-fast) var(--ease),
+      width var(--dur-fast) var(--ease);
+  }
+  .ui-slider__thumb[data-focus-visible] {
+    outline: none;
+    box-shadow: var(--ring-focus);
+  }
+  @media (hover: hover) {
+    .ui-slider__thumb[data-hovered] {
+      background: var(--ink-hover);
+      width: 6px;
+    }
+  }
+  .ui-slider__thumb[data-dragging] {
+    background: var(--ink-hover);
+    width: 6px;
+  }
+
+  .ui-slider__value {
+    flex: none;
+    min-width: 2.5em;
+    text-align: end;
+    font: var(--t-code) / var(--t-footnote-lh) var(--font-mono);
+    color: var(--fg2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ui-slider[data-disabled] {
+    opacity: 0.4;
+  }
+  .ui-slider[data-disabled] .ui-slider__thumb {
+    cursor: default;
+  }
+
+  .ui-slider--invalid .ui-slider__fill,
+  .ui-slider--invalid .ui-slider__thumb {
+    background: var(--fail);
+  }
+
+  .ui-slider[data-orientation='vertical'] .ui-slider__row {
+    flex-direction: column;
+    align-items: center;
+    min-height: 160px;
+  }
+  .ui-slider[data-orientation='vertical'] .ui-slider__track {
+    width: 2px;
+    height: 100%;
+    min-height: 140px;
+  }
+  .ui-slider[data-orientation='vertical'] .ui-slider__thumb {
+    width: 14px;
+    height: 4px;
+  }
+  .ui-slider[data-orientation='vertical'] .ui-slider__thumb:is([data-hovered], [data-dragging]) {
+    width: 14px;
+    height: 6px;
+  }
+  .ui-slider[data-orientation='vertical'] .ui-slider__track::before {
+    inset: 0 -8px;
+  }
+  .ui-slider[data-orientation='vertical'] .ui-slider__value {
+    min-width: 0;
+    text-align: center;
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+out/
+dist/
+.tmp/
+*.log
+.local-docs/
