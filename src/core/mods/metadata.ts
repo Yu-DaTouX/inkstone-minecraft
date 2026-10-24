@@ -84,7 +84,13 @@ function dependencyList(value: unknown, kind: 'depends' | 'breaks' = 'depends'):
   }
   if (value && typeof value === 'object') {
     for (const [modId, range] of Object.entries(value as Record<string, unknown>)) {
-      out.push({ modId, required: kind === 'depends', versionRange: typeof range === 'string' ? range : null, kind })
+      const versionRange =
+        typeof range === 'string'
+          ? range
+          : Array.isArray(range)
+            ? range.filter((item): item is string => typeof item === 'string').join(' || ') || null
+            : null
+      out.push({ modId, required: kind === 'depends', versionRange, kind })
     }
   }
   return out
@@ -217,11 +223,43 @@ function legacyMeta(raw: string): RawMeta {
   }
 }
 
+/**
+ * Fabric Loader 读 fabric.mod.json 很宽松：字符串里直接换行、开头有 BOM、
+ * 末尾多逗号都能过。严格的 JSON.parse 会把这些 Mod 当成「不是 Mod」，这里照着放宽。
+ */
+export function parseJsonLenient(raw: string): unknown {
+  const text = raw.replace(/^﻿/, '')
+  try {
+    return JSON.parse(text)
+  } catch {
+    let out = ''
+    let inString = false
+    let escaped = false
+    for (const char of text) {
+      if (inString) {
+        if (escaped) escaped = false
+        else if (char === '\\') escaped = true
+        else if (char === '"') inString = false
+        else if (char === '\n') {
+          out += '\\n'
+          continue
+        } else if (char === '\r') continue
+        else if (char === '\t') {
+          out += '\\t'
+          continue
+        }
+      } else if (char === '"') inString = true
+      out += char
+    }
+    return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'))
+  }
+}
+
 function parseMetaEntry(name: string, text: string): RawMeta | null {
   const lower = name.toLowerCase()
   try {
-    if (lower === 'fabric.mod.json') return fabricMeta(JSON.parse(text) as Record<string, unknown>)
-    if (lower === 'quilt.mod.json') return quiltMeta(JSON.parse(text) as Record<string, unknown>)
+    if (lower === 'fabric.mod.json') return fabricMeta(parseJsonLenient(text) as Record<string, unknown>)
+    if (lower === 'quilt.mod.json') return quiltMeta(parseJsonLenient(text) as Record<string, unknown>)
     if (lower === 'meta-inf/neoforge.mods.toml') return tomlMeta('neoforge', text)
     if (lower === 'meta-inf/mods.toml') return tomlMeta('forge', text)
     if (lower === 'mcmod.info') return legacyMeta(text)
@@ -273,7 +311,7 @@ async function nestedMods(zip: ZipFile, entries: Entry[]): Promise<{ ids: string
         if (!meta) continue
         const raw = (await readSmall(inner, meta, MAX_META_BYTES))?.toString('utf8')
         if (!raw) continue
-        const parsed = name === 'fabric.mod.json' ? fabricMeta(JSON.parse(raw) as Record<string, unknown>) : quiltMeta(JSON.parse(raw) as Record<string, unknown>)
+        const parsed = name === 'fabric.mod.json' ? fabricMeta(parseJsonLenient(raw) as Record<string, unknown>) : quiltMeta(parseJsonLenient(raw) as Record<string, unknown>)
         if (parsed.modId) ids.push(parsed.modId)
         if (!icon) icon = await iconFromZip(inner, innerEntries, parsed.iconCandidates)
       }

@@ -6,10 +6,12 @@ export interface SettingRowProps extends Omit<HTMLAttributes<HTMLDivElement>, 'c
   description?: ReactNode
   block?: boolean
   indent?: boolean
+  /** 行首的图形：头像、图标 */
+  leading?: ReactNode
   children?: ReactNode
 }
 
-export function SettingRow({ label, description, block, indent, className, children, ...rest }: SettingRowProps): ReactElement {
+export function SettingRow({ label, description, block, indent, leading, className, children, ...rest }: SettingRowProps): ReactElement {
   return (
     <div
       {...rest}
@@ -17,6 +19,7 @@ export function SettingRow({ label, description, block, indent, className, child
       data-block={block ? '1' : '0'}
       data-indent={indent ? '1' : undefined}
     >
+      {leading != null ? <div className="ui-setting-row__lead">{leading}</div> : null}
       <div className="ui-setting-row__text">
         <span className="ui-setting-row__label">{label}</span>
         {description != null ? <div className="ui-setting-row__desc">{description}</div> : null}

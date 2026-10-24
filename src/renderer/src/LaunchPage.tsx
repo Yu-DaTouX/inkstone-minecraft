@@ -1,18 +1,26 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { FileText, Play } from 'lucide-react'
-import { Badge } from './ui/Badge'
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
+import { FileText, Layers, Settings2, Wrench } from 'lucide-react'
 import { Button } from './ui/Button'
+import { IconButton } from './ui/IconButton'
 import { Notice } from './ui/Notice'
-import { StatusDot } from './ui/StatusDot'
 import type { InstanceInfo, LauncherSettings, LaunchStatus } from '../../shared/api.ts'
 import type { CrashAction, CrashDiagnosis } from '../../shared/crash-api.ts'
 import type { PreflightReport } from '../../shared/launch-api.ts'
-import { AccountCarousel } from './AccountCarousel.tsx'
+import { AccountRing } from './AccountRing.tsx'
 import { AddAccount } from './AddAccount.tsx'
 import { CrashDialog } from './CrashDialog.tsx'
 import { LaunchCard } from './LaunchCard.tsx'
-import { canLaunchWith, instanceMeta, STATE_DOT, STATE_LABEL } from './labels.ts'
+import { canLaunchWith, LOADER_BIOME, loaderLabel } from './labels.ts'
+import { seedOf } from './terrain.ts'
 import { VersionList } from './VersionList.tsx'
+
+type PickerState = 'closed' | 'open' | 'closing'
+
+function crashTime(at: number): string {
+  const date = new Date(at)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 
 interface Props {
   settings: LauncherSettings
@@ -22,6 +30,8 @@ interface Props {
   onManage(folder: string, versionId: string): void
   onOpenLogs(): void
   onOpenSettings(section: 'accounts' | 'java' | 'game'): void
+  /** 背景地图跟着当前（或正在预览的）版本换种子 */
+  onWorld(seed: string): void
 }
 
 function cleanError(cause: unknown): string {
@@ -29,7 +39,7 @@ function cleanError(cause: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
-export function LaunchPage({ settings, status, apply, onImport, onManage, onOpenLogs, onOpenSettings }: Props): ReactElement {
+export function LaunchPage({ settings, status, apply, onImport, onManage, onOpenLogs, onOpenSettings, onWorld }: Props): ReactElement {
   const [fresh, setFresh] = useState<LauncherSettings | null>(null)
   const current = fresh ?? settings
   const folder = current.selectedFolder ?? current.folders[0]?.path ?? null
@@ -45,6 +55,9 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
   const [crashResult, setCrashResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [lastCrash, setLastCrash] = useState<CrashDiagnosis | null>(null)
   const [dismissedCrash, setDismissedCrash] = useState<string | null>(null)
+  const [picker, setPicker] = useState<PickerState>('closed')
+  const [hovered, setHovered] = useState<string | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
 
   useEffect(() => {
     setFresh(null)
@@ -95,8 +108,32 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
   const account = current.accounts.find((item) => item.id === current.selectedAccountId) ?? null
   const busy = status?.state === 'starting' || status?.state === 'running'
   const showAdd = adding || current.accounts.length === 0
-  const blocker = !account ? '先添加一个账号' : !canLaunchWith(account) ? '正版与外置登录还在接入，先切到离线账号启动' : !selected ? '先在右侧选一个版本' : ''
+  const blocker = !account ? '先添加一个账号' : !canLaunchWith(account) ? '正版与外置登录还在接入，先切到离线账号启动' : !selected ? '先在版本选择里挑一个版本' : ''
   const steps = status?.steps ?? []
+
+  // 悬停预览稍等一下再换地图，扫过列表时不至于每行都溶解一次
+  useEffect(() => {
+    const timer = setTimeout(() => setHovered(preview), preview ? 110 : 260)
+    return () => clearTimeout(timer)
+  }, [preview])
+
+  const worldSeed = (picker === 'open' ? hovered : null) ?? selected?.id ?? folder ?? 'Inkstone Minecraft'
+  useEffect(() => onWorld(worldSeed), [onWorld, worldSeed])
+
+  // 还没有可用版本时直接摊开版本列表
+  const needsPick = current.folders.length === 0 || (instances !== null && !selected)
+  useEffect(() => {
+    if (needsPick) setPicker('open')
+  }, [needsPick])
+
+  useEffect(() => {
+    if (picker !== 'open' || needsPick) return
+    const onKey = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape') setPicker('closing')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [picker, needsPick])
   const warnings = report?.items.filter((item) => item.level === 'warn') ?? []
 
   useEffect(() => {
@@ -169,10 +206,13 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
     }
   }
 
+  const blocked = report?.blocked ? report.items.filter((item) => item.level === 'block') : []
+  const showCrash = !!lastCrash && lastCrash.id !== dismissedCrash && !crash && !busy
+
   return (
-    <div className="launch">
-      <aside className="launch__side" aria-label="账号与启动">
-        <section className="side-account">
+    <div className="launch" data-picker={picker}>
+      <aside className="rail" aria-label="账号与启动">
+        <div className="rail__account">
           {showAdd ? (
             <AddAccount
               canGoBack={current.accounts.length > 0}
@@ -183,22 +223,15 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
               }}
             />
           ) : (
-            <AccountCarousel
+            <AccountRing
               accounts={current.accounts}
               selectedId={current.selectedAccountId}
               onSelect={(id) => void apply(window.craft.selectAccount(id))}
               onAdd={() => setAdding(true)}
-              onRemove={(id) => void apply(window.craft.removeAccount(id))}
             />
           )}
-        </section>
-        <section className="side-launch">
-          <div className="side-launch__version">
-            <span className="side-launch__label">当前版本</span>
-            <span className="side-launch__name">{selected?.id ?? '未选择'}</span>
-            {selected ? <span className="side-launch__meta">{instanceMeta(selected)}</span> : null}
-            {selected?.isolated ? <Badge className="side-launch__badge">版本隔离</Badge> : null}
-          </div>
+        </div>
+        <div className="rail__go">
           {busy && status ? (
             <LaunchCard
               status={status}
@@ -214,85 +247,102 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
               <Button
                 variant="primary"
                 block
-                className="side-launch__go"
-                icon={<Play size={14} />}
+                className={checking ? 'go go--checking' : 'go'}
                 isDisabled={!!blocker || checking}
                 onPress={() => selected && void launch(selected.id)}
               >
-                {checking ? '正在检查…' : '启动游戏'}
+                <span className="go__label">{checking ? '正在检查…' : '启动游戏'}</span>
+                <span className="go__version">{selected?.id ?? '没有可启动的版本'}</span>
               </Button>
-              <div className="side-launch__foot">
-                <span className="side-launch__state">
-                  <StatusDot kind={STATE_DOT[status?.state ?? 'idle']} />
-                  {blocker || STATE_LABEL[status?.state ?? 'idle']}
-                </span>
-                <Button variant="ghost" size="sm" icon={<FileText size={14} />} onPress={onOpenLogs}>
-                  日志
-                </Button>
-              </div>
+              {blocker ? <p className="rail__hint">{blocker}</p> : null}
             </>
           )}
+          <div className="rail__row">
+            <Button className="rail__pick" icon={<Layers size={17} />} onPress={() => setPicker(picker === 'open' ? 'closing' : 'open')} aria-expanded={picker === 'open'}>
+              版本选择
+            </Button>
+            <IconButton aria-label="版本设置" className="rail__icon" isDisabled={!selected || !folder} onPress={() => selected && folder && onManage(folder, selected.id)}>
+              <Settings2 size={18} />
+            </IconButton>
+            <IconButton aria-label="游戏日志" className="rail__icon" onPress={onOpenLogs}>
+              <FileText size={18} />
+            </IconButton>
+          </div>
+        </div>
+      </aside>
+      <section className="view" aria-label="当前版本">
+        {selected ? (
+          <div className="view__title" key={selected.id}>
+            <h1 className="view__name">{selected.id}</h1>
+            <p className="view__sub">
+              <i className="swatch" style={{ background: LOADER_BIOME[selected.loader] }} aria-hidden="true" />
+              {loaderLabel(selected)}
+              <span className="view__dot" aria-hidden="true" />
+              Minecraft {selected.minecraftVersion ?? '?'}
+              <span className="view__dot" aria-hidden="true" />
+              {selected.modCount ? `${selected.modCount} 个 Mod` : '没有 Mod'}
+            </p>
+          </div>
+        ) : null}
+        {selected ? (
+          <span className="view__seed" title="背景地图由版本名生成">
+            种子 {seedOf(selected.id)}
+          </span>
+        ) : null}
+        <div className="view__notes" aria-live="polite">
           {report?.blocked ? (
-            <Notice tone="fail" compact title="启动前检查没通过">
-              <ul className="side-launch__issues">
-                {report.items
-                  .filter((item) => item.level === 'block')
-                  .map((item) => (
-                    <li key={item.id}>
-                      {item.title}
-                      {item.detail ? `：${item.detail}` : ''}
-                    </li>
-                  ))}
-              </ul>
-              <div className="side-launch__notice-actions">
-                {report.items.some((item) => item.level === 'block' && item.id === 'java') ? (
-                  <Button size="sm" variant="ghost" onPress={() => onOpenSettings('java')}>
-                    去设置 Java
+            <FixCard
+              title="启动前检查没通过"
+              items={blocked.map((item) => `${item.title}${item.detail ? `：${item.detail}` : ''}`)}
+              actions={
+                <>
+                  {blocked.some((item) => item.id === 'java') ? (
+                    <Button className="fix-button" onPress={() => onOpenSettings('java')}>
+                      去设置 Java
+                    </Button>
+                  ) : null}
+                  <Button className={blocked.some((item) => item.id === 'java') ? undefined : 'fix-button'} onPress={() => folder && onManage(folder, report.versionId)}>
+                    去修复版本
                   </Button>
-                ) : null}
-                <Button size="sm" variant="ghost" onPress={() => folder && onManage(folder, report.versionId)}>
-                  去修复版本
-                </Button>
-                <Button size="sm" variant="ghost" onPress={() => setReport(null)}>
-                  先不启动
-                </Button>
-              </div>
-            </Notice>
+                  <Button variant="ghost" onPress={() => setReport(null)}>
+                    先不启动
+                  </Button>
+                </>
+              }
+            />
           ) : null}
           {report && !report.blocked && warnings.length > 0 ? (
-            <Notice tone="stall" compact title="启动前检查有提醒">
-              <ul className="side-launch__issues">
-                {warnings.map((item) => (
-                  <li key={item.id}>
-                    {item.title}
-                    {item.detail ? `：${item.detail}` : ''}
-                  </li>
-                ))}
-              </ul>
-              <div className="side-launch__notice-actions">
-                <Button size="sm" variant="primary" onPress={() => selected && void launch(selected.id, true)}>
-                  仍然启动
-                </Button>
-                {warnings.some((item) => item.id === 'deps' || item.id === 'duplicates') ? (
-                  <Button size="sm" variant="ghost" onPress={() => folder && onManage(folder, report.versionId)}>
-                    打开 Mod 管理
+            <FixCard
+              title="启动前检查有提醒"
+              items={warnings.map((item) => `${item.title}${item.detail ? `：${item.detail}` : ''}`)}
+              actions={
+                <>
+                  {warnings.some((item) => item.id === 'deps' || item.id === 'duplicates') ? (
+                    <Button className="fix-button" onPress={() => folder && onManage(folder, report.versionId)}>
+                      打开 Mod 管理
+                    </Button>
+                  ) : null}
+                  <Button onPress={() => selected && void launch(selected.id, true)}>仍然启动</Button>
+                  <Button variant="ghost" onPress={() => setReport(null)}>
+                    先不启动
                   </Button>
-                ) : null}
-                <Button size="sm" variant="ghost" onPress={() => setReport(null)}>
-                  先不启动
-                </Button>
-              </div>
-            </Notice>
+                </>
+              }
+            />
           ) : null}
-          {lastCrash && lastCrash.id !== dismissedCrash && !crash && !busy ? (
-            <Notice
-              tone="fail"
-              compact
+          {showCrash && lastCrash ? (
+            <FixCard
               title={`上次崩溃：${lastCrash.rule?.title ?? '没认出原因'}`}
-              action={
-                <Button size="sm" variant="ghost" onPress={() => setCrash(lastCrash)}>
-                  查看
-                </Button>
+              items={[`${crashTime(lastCrash.at)} 崩溃，已经分析过日志`]}
+              actions={
+                <>
+                  <Button className="fix-button" onPress={() => setCrash(lastCrash)}>
+                    查看原因与修复
+                  </Button>
+                  <Button variant="ghost" onPress={() => setDismissedCrash(lastCrash.id)}>
+                    忽略
+                  </Button>
+                </>
               }
             />
           ) : null}
@@ -301,29 +351,40 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
               {error}
             </Notice>
           ) : null}
-        </section>
-      </aside>
-      <section className="launch__main" aria-label="版本">
-        <VersionList
-          folders={current.folders}
-          folder={folder}
-          instances={folder ? instances : []}
-          error={instancesError}
-          selectedId={selected?.id ?? null}
-          onFolder={(path) => void apply(window.craft.updateSettings({ selectedFolder: path, selectedVersion: null }))}
-          onSelect={(id) => void apply(window.craft.updateSettings({ selectedVersion: id, selectedFolder: folder }))}
-          onLaunch={(id) => void launch(id)}
-          onManage={(id) => folder && onManage(folder, id)}
-          onPickFolder={() =>
-            void window.craft.pickFolder().then((path) => {
-              if (!path) return
-              const folders = current.folders.some((item) => item.path.toLowerCase() === path.toLowerCase()) ? current.folders : [...current.folders, { name: path, path }]
-              return apply(window.craft.updateSettings({ folders, selectedFolder: path, selectedVersion: null }))
-            })
-          }
-          onImport={onImport}
-          onRefresh={() => setScan((value) => value + 1)}
-        />
+        </div>
+        {picker !== 'closed' ? (
+          <div className="picker" data-state={picker} onAnimationEnd={(event) => event.target === event.currentTarget && picker === 'closing' && setPicker('closed')}>
+            <VersionList
+              folders={current.folders}
+              folder={folder}
+              instances={folder ? instances : []}
+              error={instancesError}
+              selectedId={selected?.id ?? null}
+              onFolder={(path) => void apply(window.craft.updateSettings({ selectedFolder: path, selectedVersion: null }))}
+              onSelect={(id) => {
+                setPreview(null)
+                void apply(window.craft.updateSettings({ selectedVersion: id, selectedFolder: folder }))
+                setPicker('closing')
+              }}
+              onLaunch={(id) => {
+                setPicker('closing')
+                void launch(id)
+              }}
+              onManage={(id) => folder && onManage(folder, id)}
+              onPickFolder={() =>
+                void window.craft.pickFolder().then((path) => {
+                  if (!path) return
+                  const folders = current.folders.some((item) => item.path.toLowerCase() === path.toLowerCase()) ? current.folders : [...current.folders, { name: path, path }]
+                  return apply(window.craft.updateSettings({ folders, selectedFolder: path, selectedVersion: null }))
+                })
+              }
+              onImport={onImport}
+              onRefresh={() => setScan((value) => value + 1)}
+              onPreview={setPreview}
+              onClose={selected ? () => setPicker('closing') : undefined}
+            />
+          </div>
+        ) : null}
       </section>
       <CrashDialog
         diagnosis={crash}
@@ -335,6 +396,25 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
         }}
         onAction={(action) => void runCrashAction(action)}
       />
+    </div>
+  )
+}
+
+function FixCard({ title, items, actions }: { title: string; items?: string[]; actions: ReactNode }): ReactElement {
+  return (
+    <div className="fix-card" role="status">
+      <Wrench size={16} className="fix-card__icon" aria-hidden="true" />
+      <div className="fix-card__body">
+        <p className="fix-card__title">{title}</p>
+        {items && items.length > 0 ? (
+          <ul className="fix-card__items">
+            {items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="fix-card__actions">{actions}</div>
+      </div>
     </div>
   )
 }

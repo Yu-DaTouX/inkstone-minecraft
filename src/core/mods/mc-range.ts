@@ -4,7 +4,10 @@ export interface VersionParts {
 }
 
 export function parseVersion(raw: string): VersionParts {
-  const text = String(raw ?? '').trim()
+  // semver 的构建信息（+mc1.21、+build.3）不参与比较；不去掉的话 0.5.0+mc1.21 会被当成比 0.5.0 还旧的预览版
+  const text = String(raw ?? '')
+    .trim()
+    .replace(/\+.*$/, '')
   const match = /^(\d+(?:\.\d+)*)(.*)$/.exec(text)
   if (!match) return { numbers: [], suffix: text }
   return { numbers: match[1].split('.').map((part) => Number(part) || 0), suffix: match[2] }
@@ -40,11 +43,11 @@ function matchesPrefix(range: string, version: string): boolean {
   const wanted = segmentsOf(range)
   const actual = segmentsOf(version)
   if (wanted.length === 0) return true
-  if (wanted.length > actual.length) return false
   for (let index = 0; index < wanted.length; index += 1) {
     const part = wanted[index]
-    if (part === 'x' || part === '*') return actual.length >= index
-    if (part !== actual[index]) return false
+    if (part === 'x' || part === '*') return true
+    // 缺的段按 0 算：1.21 就是 1.21.0，所以 1.21.x 包含 1.21
+    if (part !== (actual[index] ?? '0')) return false
   }
   return true
 }
@@ -137,6 +140,8 @@ export function matchesVersionRange(range: string | null | undefined, version: s
   const text = String(range ?? '').trim()
   if (!text || text === '*' || text === 'any') return true
   if (/[\[(]/.test(text)) return mavenRange(text, target)
+  // Fabric 的数组写法存成「a || b」，满足任意一个就算
+  if (text.includes('||')) return text.split('||').some((part) => matchesVersionRange(part, target))
   return text
     .split(/\s+/)
     .filter((token) => token.length > 0)

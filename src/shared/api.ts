@@ -120,6 +120,25 @@ export interface DownloadProbe {
   error: string | null
 }
 
+/** dev：开发版不检查；latest：已是最新；ready：下好了，等重启 */
+export type UpdateState = 'dev' | 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'error'
+
+export interface UpdateStatus {
+  state: UpdateState
+  current: string
+  /** 发现的新版本号 */
+  version: string | null
+  /** 下载进度 0–100 */
+  progress: number | null
+  error: string | null
+  checkedAt: number | null
+}
+
+export interface SystemMemory {
+  totalMb: number
+  freeMb: number
+}
+
 export interface LauncherSettings {
   folders: GameFolder[]
   selectedFolder: string | null
@@ -132,6 +151,10 @@ export interface LauncherSettings {
   downloadSource: DownloadSource
   downloadConcurrency: number
   theme: ThemePreference
+  /** 关窗口时退到托盘（游戏照常运行） */
+  closeToTray: boolean
+  /** 启动游戏前清理一次内存 */
+  cleanMemoryOnLaunch: boolean
 }
 
 export type TaskKind = 'install' | 'repair' | 'mod-install' | 'mod-update' | 'export'
@@ -203,12 +226,19 @@ export interface CraftApi {
   javas(): Promise<JavaEntry[]>
   pickJava(): Promise<string | null>
   probeDownloadSources(): Promise<DownloadProbe[]>
+  systemMemory(): Promise<SystemMemory>
+  updateStatus(): Promise<UpdateStatus>
+  checkUpdate(): Promise<UpdateStatus>
+  installUpdate(): Promise<void>
+  onUpdate(listener: (status: UpdateStatus) => void): () => void
   pclSnapshot(): Promise<PclSnapshot>
   importPcl(): Promise<LauncherSettings>
   addOfflineAccount(name: string): Promise<LauncherSettings>
   removeAccount(id: string): Promise<LauncherSettings>
   selectAccount(id: string): Promise<LauncherSettings>
   skin(accountId: string): Promise<SkinInfo>
+  /** 给离线账号选一张皮肤 PNG；取消时返回 null */
+  pickSkin(accountId: string): Promise<SkinInfo | null>
   instanceIcon(folder: string, versionId: string): Promise<string | null>
   openFolder(folder: string, versionId: string, target: FolderTarget): Promise<string | null>
   tasks(): Promise<TaskInfo[]>

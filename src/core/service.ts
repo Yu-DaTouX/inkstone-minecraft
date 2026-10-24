@@ -33,6 +33,7 @@ import { applicableRules } from './crash/rules.ts'
 import { TaskCenter } from './tasks.ts'
 import { listInstances, readInstance } from './instances.ts'
 import { detectJava, pickJava } from './java.ts'
+import { trimMemory } from './memory.ts'
 import { describeLaunchCommand, initialLaunchSteps, launchOffline, updateLaunchStep } from './launch.ts'
 import { normalizeFolder, readPclSnapshot, readPclVersionSetup } from './pcl-import.ts'
 import { dataDir, SettingsStore } from './settings.ts'
@@ -274,6 +275,16 @@ export class CraftService extends EventEmitter {
     return this.updateSettings({ selectedAccountId: id })
   }
 
+  async setSkin(accountId: string, png: Buffer): Promise<SkinInfo> {
+    const settings = await this.store.load()
+    const account = settings.accounts.find((item) => item.id === accountId)
+    if (!account) throw new Error('找不到这个账号')
+    if (account.kind !== 'offline') throw new Error('正版与外置账号的皮肤由皮肤站提供')
+    const info = await this.skins.setCustom(account, png)
+    this.note(`给离线账号 ${account.name} 换了皮肤`)
+    return info
+  }
+
   async skin(accountId: string): Promise<SkinInfo> {
     const settings = await this.store.load()
     const account = settings.accounts.find((item) => item.id === accountId)
@@ -453,6 +464,8 @@ export class CraftService extends EventEmitter {
     this.setStatus({ ...IDLE, state: 'starting', versionId: request.versionId, steps: this.steps })
     let windowShown = false
     let finished = false
+    // 和检查、补文件并行跑，真正拉起进程前最多等它一会儿
+    const trimming = settings.cleanMemoryOnLaunch ? trimMemory() : null
     try {
       const username = request.username ?? this.launchName(settings, request.accountId)
       this.markStep('account', { state: 'done', detail: `离线账号 ${username}` })
@@ -506,6 +519,11 @@ export class CraftService extends EventEmitter {
         resolution: { width: effective.width ?? undefined, height: effective.height ?? undefined, fullscreen: effective.fullscreen }
       }
       const launchArgs = await describeLaunchCommand(launchOptions).catch(() => [])
+      if (trimming) {
+        this.markStep('process', { state: 'running', detail: '清理内存' })
+        const trimmed = await trimming
+        if (trimmed) this.note(`已清理内存：整理了 ${trimmed.processes} 个进程${trimmed.freedMb > 0 ? `，可用内存多了 ${trimmed.freedMb} MB` : ''}`)
+      }
       this.markStep('process', { state: 'running', detail: `启动 ${instance.minecraftVersion ?? request.versionId}` })
       const child = await launchOffline(
         launchOptions,
@@ -1102,7 +1120,10 @@ export class CraftService extends EventEmitter {
   }
 
   dispose(): void {
-    this.child?.kill()
+    // 启动器退出不带走游戏：只断开监听，进程留着
+    this.child?.stdout?.removeAllListeners()
+    this.child?.stderr?.removeAllListeners()
+    this.child?.unref()
     this.child = null
     this.tasks.removeAllListeners()
     this.removeAllListeners()

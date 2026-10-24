@@ -109,7 +109,8 @@ async function buildLaunchOption(options: OfflineLaunchOptions, version: Resolve
     extraJVMArgs: extraJVMArgs.length > 0 ? extraJVMArgs : undefined,
     extraMCArgs: extraMCArgs.length > 0 ? extraMCArgs : undefined,
     resolution,
-    extraExecOption: { windowsHide: false }
+    // detached：不进启动器的 Job，关掉启动器游戏照常运行
+    extraExecOption: { windowsHide: false, detached: true }
   }
 }
 

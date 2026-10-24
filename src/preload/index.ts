@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import type { CraftApi, LaunchStatus, LogLine, TaskInfo } from '../shared/api.ts'
+import type { CraftApi, LaunchStatus, LogLine, TaskInfo, UpdateStatus } from '../shared/api.ts'
 import type { CrashDiagnosis } from '../shared/crash-api.ts'
 import { CRAFT_CHANNELS } from '../shared/channels.ts'
 
@@ -21,12 +21,18 @@ const api: CraftApi = {
   javas: () => ipcRenderer.invoke(CRAFT_CHANNELS.javas),
   pickJava: () => ipcRenderer.invoke(CRAFT_CHANNELS.pickJava),
   probeDownloadSources: () => ipcRenderer.invoke(CRAFT_CHANNELS.probeDownloadSources),
+  systemMemory: () => ipcRenderer.invoke(CRAFT_CHANNELS.systemMemory),
+  updateStatus: () => ipcRenderer.invoke(CRAFT_CHANNELS.updateStatus),
+  checkUpdate: () => ipcRenderer.invoke(CRAFT_CHANNELS.updateCheck),
+  installUpdate: () => ipcRenderer.invoke(CRAFT_CHANNELS.updateInstall),
+  onUpdate: (listener) => subscribe<UpdateStatus>(CRAFT_CHANNELS.updateEvent, listener),
   pclSnapshot: () => ipcRenderer.invoke(CRAFT_CHANNELS.pclSnapshot),
   importPcl: () => ipcRenderer.invoke(CRAFT_CHANNELS.importPcl),
   addOfflineAccount: (name) => ipcRenderer.invoke(CRAFT_CHANNELS.addOfflineAccount, name),
   removeAccount: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.removeAccount, id),
   selectAccount: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.selectAccount, id),
   skin: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.skin, id),
+  pickSkin: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.pickSkin, id),
   instanceIcon: (folder, versionId) => ipcRenderer.invoke(CRAFT_CHANNELS.instanceIcon, folder, versionId),
   openFolder: (folder, versionId, target) => ipcRenderer.invoke(CRAFT_CHANNELS.openFolder, folder, versionId, target),
   tasks: () => ipcRenderer.invoke(CRAFT_CHANNELS.tasks),

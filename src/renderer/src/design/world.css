@@ -1,0 +1,104 @@
+/* 种子地图世界：整窗是一张地图，操作浮在磨砂玻璃上。覆盖基础令牌，所有页面继承。
+   中性石墨与雾白，不带蓝调；绿色只给「启动」，琥珀只给「修复」。 */
+@layer tokens {
+  :root {
+    --bg: light-dark(#ECEDE9, #131314);
+    --side: light-dark(#F5F5F2, #1A1A1B);
+    --surface: light-dark(#FFFFFF, #222224);
+    --surface-0: light-dark(#F2F2EF, #0F0F10);
+    --surface-3: light-dark(#FFFFFF, #29292B);
+    --hover: light-dark(rgba(20,20,15,.06), rgba(255,255,255,.08));
+    --hover-main: light-dark(rgba(20,20,15,.045), rgba(255,255,255,.06));
+    --press: light-dark(rgba(20,20,15,.1), rgba(255,255,255,.13));
+    --field: light-dark(rgba(255,255,255,.75), rgba(255,255,255,.06));
+    --field-hover: light-dark(rgba(20,20,15,.05), rgba(255,255,255,.1));
+    --bubble: light-dark(#E6E7E2, #262628);
+    --sunken: light-dark(rgba(20,20,15,.06), rgba(0,0,0,.28));
+    --fg: light-dark(#141513, #EEEEEB);
+    --fg2: light-dark(#454641, #BFBFBA);
+    --fg3: light-dark(#686964, #8F8F8A);
+    --line: light-dark(rgba(20,20,15,.1), rgba(255,255,255,.09));
+    --line2: light-dark(rgba(20,20,15,.18), rgba(255,255,255,.17));
+    --line-ctl: light-dark(rgba(20,20,15,.4), rgba(255,255,255,.3));
+    --ink: light-dark(#141513, #F2F2EF);
+    --ink-hover: light-dark(#2C2D2A, #FFFFFF);
+    --on-ink: light-dark(#FFFFFF, #141513);
+
+    /* 草地绿：启动与选中 */
+    --accent: light-dark(#23803D, #5CC873);
+    --accent-hover: light-dark(#1C6E33, #72D486);
+    --accent-t: light-dark(#1A6630, #86DC98);
+    --on-accent: light-dark(#FFFFFF, #0A1B0E);
+    --focus-glow: light-dark(#C4E6CC, #1F4A2A);
+    --sel: light-dark(rgba(35,128,61,.12), rgba(92,200,115,.16));
+    --run: var(--accent);
+    --run-t: var(--accent-t);
+
+    /* 琥珀：只给「修复 / 下一步」 */
+    --fix: light-dark(#B87400, #F2B13C);
+    --fix-t: light-dark(#7A4C00, #FFD27E);
+    --fix-bg: light-dark(#FCF1DB, rgba(242,177,60,.12));
+    --fix-edge: light-dark(rgba(184,116,0,.35), rgba(242,177,60,.32));
+    --on-fix: #2A1B00;
+
+    /* 生物群系图例：加载器与地形 */
+    --biome-plains: light-dark(#5E9128, #8CC44A);
+    --biome-desert: light-dark(#A87B1E, #E0BF72);
+    --biome-badlands: light-dark(#B4552B, #D97848);
+    --biome-cherry: light-dark(#C0507E, #F09CBE);
+    --biome-mushroom: light-dark(#7D4F98, #B88FD0);
+    --biome-stone: light-dark(#6E767B, #9AA3A8);
+
+    /* 磨砂玻璃：框架用常规一层，整页内容用厚一层 */
+    --glass: light-dark(rgba(247,247,243,.7), rgba(26,26,28,.62));
+    --glass-heavy: light-dark(rgba(247,247,243,.88), rgba(22,22,24,.86));
+    --glass-hi: light-dark(rgba(255,255,255,.7), rgba(255,255,255,.07));
+    --glass-lo: light-dark(rgba(20,20,15,.1), rgba(0,0,0,.45));
+    --glass-blur: blur(30px) saturate(1.6);
+
+    --shadow-lift: 0 1px 1px light-dark(rgba(20,20,15,.05), rgba(0,0,0,.3)), 0 6px 18px light-dark(rgba(20,20,15,.08), rgba(0,0,0,.35));
+    --shadow-float: 0 2px 4px light-dark(rgba(20,20,15,.06), rgba(0,0,0,.35)), 0 18px 48px light-dark(rgba(20,20,15,.16), rgba(0,0,0,.55));
+
+    --font-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+    --font-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+
+    /* 字号与控件：比默认密度大一档，看得清、点得准 */
+    --t-caption: 12px;
+    --t-caption-lh: 16px;
+    --t-footnote: 13px;
+    --t-footnote-lh: 18px;
+    --t-body: 14px;
+    --t-body-lh: 20px;
+    --t-prose: 15px;
+    --t-prose-lh: 24px;
+    --t-heading: 15px;
+    --t-heading-lh: 22px;
+    --t-title: 22px;
+    --t-title-lh: 30px;
+    --d-row: 34px;
+    --size-btn: 34px;
+    --size-btn-sm: 28px;
+    --size-icon: 18px;
+    --size-head: 48px;
+
+    --r-sm: 8px;
+    --r-md: 10px;
+    --r-lg: 14px;
+    --r-xl: 18px;
+
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --ease-in: cubic-bezier(.7, 0, .84, 0);
+    --ease-back: cubic-bezier(.34, 1.56, .64, 1);
+    --dur-reveal: 560ms;
+  }
+
+  ::selection {
+    background: light-dark(rgba(35,128,61,.22), rgba(92,200,115,.3));
+    color: inherit;
+  }
+
+  :root {
+    caret-color: var(--accent);
+    scrollbar-color: var(--line2) transparent;
+  }
+}

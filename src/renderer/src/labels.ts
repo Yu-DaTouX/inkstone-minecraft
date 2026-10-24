@@ -11,6 +11,20 @@ export const LOADER_LABEL: Record<InstanceInfo['loader'], string> = {
   unknown: '未知'
 }
 
+/** 加载器在图例里对应的生物群系色 */
+export const LOADER_BIOME: Record<InstanceInfo['loader'], string> = {
+  vanilla: 'var(--biome-plains)',
+  fabric: 'var(--biome-desert)',
+  quilt: 'var(--biome-mushroom)',
+  forge: 'var(--biome-badlands)',
+  neoforge: 'var(--biome-cherry)',
+  unknown: 'var(--biome-stone)'
+}
+
+export function loaderLabel(instance: InstanceInfo): string {
+  return `${LOADER_LABEL[instance.loader]}${instance.loaderVersion && instance.loader !== 'vanilla' ? ` ${instance.loaderVersion}` : ''}`
+}
+
 export const STATE_LABEL: Record<LaunchState, string> = {
   idle: '未运行',
   starting: '正在启动',

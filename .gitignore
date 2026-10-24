@@ -4,3 +4,5 @@ dist/
 .tmp/
 *.log
 .local-docs/
+.claude/
+.impeccable/

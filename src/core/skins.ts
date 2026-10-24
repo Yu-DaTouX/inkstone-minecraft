@@ -89,7 +89,32 @@ export class SkinCache {
     await writeFile(join(this.dir, `${key}.json`), JSON.stringify({ at: Date.now(), slim, hasSkin: !!png } satisfies CachedSkin))
   }
 
-  get(account: Account): Promise<SkinInfo> {
+  private customFile(account: Account): string {
+    return join(this.dir, `custom-${this.key(account)}.png`)
+  }
+
+  /** 离线账号自己挑的皮肤：校验是 64×64 或 64×32 的 PNG，存一份，之后优先用它。 */
+  async setCustom(account: Account, png: Buffer): Promise<SkinInfo> {
+    if (png.length > MAX_SKIN_BYTES || !png.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error('皮肤必须是 PNG 图片')
+    const width = png.readUInt32BE(16)
+    const height = png.readUInt32BE(20)
+    if (width !== 64 || (height !== 64 && height !== 32)) throw new Error(`皮肤尺寸应为 64×64 或 64×32，这张是 ${width}×${height}`)
+    await mkdir(this.dir, { recursive: true })
+    await writeFile(`${this.customFile(account)}.tmp`, png)
+    await rename(`${this.customFile(account)}.tmp`, this.customFile(account))
+    return { dataUrl: `data:image/png;base64,${png.toString('base64')}`, slim: defaultSlim(account.uuid) }
+  }
+
+  async get(account: Account): Promise<SkinInfo> {
+    try {
+      const png = await readFile(this.customFile(account))
+      return { dataUrl: `data:image/png;base64,${png.toString('base64')}`, slim: defaultSlim(account.uuid) }
+    } catch {
+      return this.fetch(account)
+    }
+  }
+
+  private fetch(account: Account): Promise<SkinInfo> {
     const url = profileUrl(account)
     if (!url) return Promise.resolve({ dataUrl: null, slim: defaultSlim(account.uuid) })
     const key = this.key(account)

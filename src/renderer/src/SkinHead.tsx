@@ -1,9 +1,30 @@
-import { useEffect, useRef, type CSSProperties, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import type { Account, SkinInfo } from '../../shared/api.ts'
 
 const requests = new Map<string, Promise<SkinInfo>>()
 
-function loadSkin(accountId: string): Promise<SkinInfo> {
+const SKIN_EVENT = 'craft-skin-changed'
+
+/** 换了皮肤：替换缓存，并通知所有正在显示这个账号的头像重画。 */
+export function refreshSkin(accountId: string, info: SkinInfo): void {
+  requests.set(accountId, Promise.resolve(info))
+  window.dispatchEvent(new CustomEvent(SKIN_EVENT, { detail: accountId }))
+}
+
+/** 这个账号的皮肤每换一次，返回值加一。 */
+export function useSkinVersion(accountId: string): number {
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const onChange = (event: Event): void => {
+      if ((event as CustomEvent<string>).detail === accountId) setVersion((value) => value + 1)
+    }
+    window.addEventListener(SKIN_EVENT, onChange)
+    return () => window.removeEventListener(SKIN_EVENT, onChange)
+  }, [accountId])
+  return version
+}
+
+export function loadSkin(accountId: string): Promise<SkinInfo> {
   let request = requests.get(accountId)
   if (!request) {
     request = window.craft.skin(accountId).catch(() => ({ dataUrl: null, slim: false }))
@@ -21,7 +42,7 @@ function seedBytes(uuid: string): number[] {
   return Array.from({ length: 16 }, (_, index) => parseInt(hex.slice(index * 2, index * 2 + 2), 16))
 }
 
-function drawFallbackFace(ctx: CanvasRenderingContext2D, uuid: string): void {
+export function drawFallbackFace(ctx: CanvasRenderingContext2D, uuid: string): void {
   const seed = seedBytes(uuid)
   const skin = SKIN_TONES[seed[0] % SKIN_TONES.length]
   const hair = HAIR_TONES[seed[1] % HAIR_TONES.length]
@@ -53,6 +74,7 @@ interface Props {
 
 export function SkinHead({ account, size }: Props): ReactElement {
   const canvas = useRef<HTMLCanvasElement>(null)
+  const version = useSkinVersion(account.id)
 
   useEffect(() => {
     const ctx = canvas.current?.getContext('2d')
@@ -74,7 +96,7 @@ export function SkinHead({ account, size }: Props): ReactElement {
     return () => {
       alive = false
     }
-  }, [account.id, account.uuid])
+  }, [account.id, account.uuid, version])
 
   return <canvas ref={canvas} width={8} height={8} className="skin-head" style={{ '--head': `${size}px` } as CSSProperties} aria-hidden="true" />
 }

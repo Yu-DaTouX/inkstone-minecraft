@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactElement, ReactNode } from 'react'
+import { useLayoutEffect, useRef, type KeyboardEvent, type ReactElement, type ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Focusable, TooltipTrigger } from 'react-aria-components'
 import { IconButton } from './ui/IconButton'
@@ -23,10 +23,50 @@ interface Props<T extends string> {
   header?: ReactNode
   onBack?: () => void
   backLabel?: string
+  /** 左栏底部：放这一页的主操作（大按钮），和启动页的「启动游戏」同一个位置 */
+  footer?: ReactNode
   children: ReactNode
 }
 
-export function SubNavLayout<T extends string>({ label, groups, active, onChange, header, onBack, backLabel, children }: Props<T>): ReactElement {
+export function SubNavLayout<T extends string>({ label, groups, active, onChange, header, onBack, backLabel, footer, children }: Props<T>): ReactElement {
+  const nav = useRef<HTMLElement>(null)
+  const thumb = useRef<HTMLSpanElement>(null)
+
+  // 选中滑块：量出当前项的位置，弹簧滑过去（和顶栏标签同一种手感）
+  useLayoutEffect(() => {
+    const list = nav.current
+    const slider = thumb.current
+    if (!list || !slider) return
+    const place = (): void => {
+      const item = list.querySelector<HTMLElement>('.subnav__item[aria-current="page"]')
+      if (!item) {
+        slider.style.opacity = '0'
+        return
+      }
+      // 一路加 offset 到导航为止（分组本身是定位元素）；不用 getBoundingClientRect，免得量到落入动画的半路
+      let x = 0
+      let y = 0
+      for (let node: HTMLElement | null = item; node && node !== list; node = node.offsetParent as HTMLElement | null) {
+        x += node.offsetLeft
+        y += node.offsetTop
+      }
+      slider.style.opacity = '1'
+      slider.style.height = `${item.offsetHeight}px`
+      slider.style.width = `${item.offsetWidth}px`
+      slider.style.transform = `translate(${x}px, ${y}px)`
+      // 第一次直接放到位，之后才滑；第一次和所在分组一起落下来（同一个延迟），落入途中不会错位
+      if (!slider.dataset.ready) {
+        const group = item.closest<HTMLElement>('.subnav > *')
+        if (group) slider.style.animationDelay = getComputedStyle(group).animationDelay
+        requestAnimationFrame(() => (slider.dataset.ready = '1'))
+      }
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(list)
+    return () => observer.disconnect()
+  }, [active, groups])
+
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
     const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.subnav__item')]
@@ -48,7 +88,8 @@ export function SubNavLayout<T extends string>({ label, groups, active, onChange
 
   return (
     <div className="subnav-layout">
-      <nav className="subnav" aria-label={label} onKeyDown={onKeyDown}>
+      <nav ref={nav} className="subnav" aria-label={label} onKeyDown={onKeyDown}>
+        <span ref={thumb} className="subnav__thumb" aria-hidden="true" />
         {onBack ? (
           <div className="subnav__back">
             <IconButton aria-label={backLabel ?? '返回'} size="sm" onPress={onBack}>
@@ -79,8 +120,12 @@ export function SubNavLayout<T extends string>({ label, groups, active, onChange
             ))}
           </div>
         ))}
+        {footer ? <div className="subnav__footer">{footer}</div> : null}
       </nav>
-      <div className="subnav-content">{children}</div>
+      {/* 换分区时内容重新挂载，按「落入」节奏重新出现 */}
+      <div className="subnav-content" key={active}>
+        {children}
+      </div>
     </div>
   )
 }

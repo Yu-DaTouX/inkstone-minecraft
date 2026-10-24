@@ -7,11 +7,15 @@ import { ListBoxItem } from './ui/ListBox'
 import { Select } from './ui/Select'
 import { SettingRow, SettingSection } from './ui/SettingRow'
 import { Slider } from './ui/Slider'
+import { Switch } from './ui/Switch'
+import { MemorySlider } from './MemorySlider.tsx'
 import { version } from '../../../package.json'
 import type { DownloadProbe, DownloadSource, JavaEntry, LauncherSettings, ThemePreference } from '../../shared/api.ts'
 import { ImportPage } from './ImportPage.tsx'
-import { accountKindLabel, accountKindTone, accountStatus, memoryLabel } from './labels.ts'
+import { accountKindLabel, accountKindTone, accountStatus } from './labels.ts'
 import { ConfirmDialog } from './overlays.tsx'
+import { SkinHead } from './SkinHead.tsx'
+import { UpdateSection } from './UpdatePanel.tsx'
 import { PageHead, SubNavLayout, type SubNavGroup } from './SubNavLayout.tsx'
 
 export type SettingsSection = 'accounts' | 'folders' | 'java' | 'game' | 'download' | 'appearance' | 'import' | 'about'
@@ -20,24 +24,23 @@ const GROUPS: SubNavGroup<SettingsSection>[] = [
   {
     label: '启动',
     items: [
-      { id: 'accounts', label: '账号', icon: <UserRound size={16} /> },
-      { id: 'folders', label: '游戏目录', icon: <FolderOpen size={16} /> },
-      { id: 'java', label: 'Java', icon: <Coffee size={16} /> },
-      { id: 'game', label: '启动默认值', icon: <Gamepad2 size={16} /> }
+      { id: 'accounts', label: '账号', icon: <UserRound size={20} /> },
+      { id: 'folders', label: '游戏目录', icon: <FolderOpen size={20} /> },
+      { id: 'java', label: 'Java', icon: <Coffee size={20} /> },
+      { id: 'game', label: '启动默认值', icon: <Gamepad2 size={20} /> }
     ]
   },
   {
     label: '启动器',
     items: [
-      { id: 'download', label: '下载', icon: <Download size={16} /> },
-      { id: 'appearance', label: '外观', icon: <Palette size={16} /> },
-      { id: 'import', label: '导入', icon: <Import size={16} /> },
-      { id: 'about', label: '关于', icon: <Info size={16} /> }
+      { id: 'download', label: '下载', icon: <Download size={20} /> },
+      { id: 'appearance', label: '外观', icon: <Palette size={20} /> },
+      { id: 'import', label: '导入', icon: <Import size={20} /> },
+      { id: 'about', label: '关于', icon: <Info size={20} /> }
     ]
   }
 ]
 
-const MEMORY_STEPS = [2048, 3072, 4096, 6144, 8192, 12288, 16384]
 
 const DOWNLOAD_SOURCES: { id: DownloadSource; label: string; description: string }[] = [
   { id: 'auto', label: '自动', description: '先用 BMCLAPI，失败时换官方源' },
@@ -137,7 +140,6 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
     }
   }
 
-  const memoryOptions = [...new Set([...MEMORY_STEPS, settings.maxMemoryMb])].sort((a, b) => a - b)
   const currentFolder = settings.selectedFolder ?? settings.folders[0]?.path
 
   return (
@@ -154,6 +156,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                 {settings.accounts.map((account) => (
                   <SettingRow
                     key={account.id}
+                    leading={<SkinHead account={account} size={36} />}
                     label={
                       <span className="settings-account">
                         {account.name}
@@ -165,7 +168,6 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                   >
                     <IconButton
                       aria-label={`移除 ${account.name}`}
-                      size="sm"
                       onPress={() =>
                         setPending({
                           title: `移除账号 ${account.name}？`,
@@ -174,7 +176,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                         })
                       }
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={18} />
                     </IconButton>
                   </SettingRow>
                 ))}
@@ -197,7 +199,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                 title="游戏目录"
                 description="每个目录是一个 .minecraft 文件夹，里面的版本会出现在启动页。"
                 actions={
-                  <Button size="sm" icon={<FolderPlus size={14} />} onPress={() => void addFolder()}>
+                  <Button icon={<FolderPlus size={18} />} onPress={() => void addFolder()}>
                     添加目录
                   </Button>
                 }
@@ -209,13 +211,13 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                     {currentFolder === folder.path ? (
                       <Badge tone="accent">当前</Badge>
                     ) : (
-                      <Button size="sm" variant="ghost" onPress={() => update({ selectedFolder: folder.path, selectedVersion: null })}>
+                      <Button variant="ghost" onPress={() => update({ selectedFolder: folder.path, selectedVersion: null })}>
                         设为当前
                       </Button>
                     )}
                     <IconButton
                       aria-label={`移除 ${folder.name}`}
-                      size="sm"
+                     
                       onPress={() =>
                         setPending({
                           title: `移除目录 ${folder.name}？`,
@@ -229,7 +231,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                         })
                       }
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={18} />
                     </IconButton>
                   </SettingRow>
                 ))}
@@ -242,10 +244,10 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                 description="启动时按版本要求自动挑选；PCL 为单个版本指定的 Java 优先使用。"
                 actions={
                   <>
-                    <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} onPress={() => setJavaScan((value) => value + 1)}>
+                    <Button variant="ghost" icon={<RefreshCw size={18} />} onPress={() => setJavaScan((value) => value + 1)}>
                       重新检测
                     </Button>
-                    <Button size="sm" icon={<Plus size={14} />} onPress={() => void addJava()}>
+                    <Button icon={<Plus size={18} />} onPress={() => void addJava()}>
                       添加 Java
                     </Button>
                   </>
@@ -261,10 +263,10 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                     {isCustomJava(java.path) ? (
                       <IconButton
                         aria-label={`移除 Java ${java.majorVersion}`}
-                        size="sm"
+                       
                         onPress={() => update({ extraJavaPaths: settings.extraJavaPaths.filter((item) => item.toLowerCase() !== java.path.toLowerCase()) })}
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={18} />
                       </IconButton>
                     ) : null}
                   </SettingRow>
@@ -275,14 +277,16 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
             <>
               <PageHead title="启动默认值" description="所有版本默认使用这些值。" />
               <SettingSection title="内存">
-                <SettingRow label="最大内存" description="分给游戏的 Java 堆内存上限。">
-                  <Select aria-label="最大内存" selectedKey={String(settings.maxMemoryMb)} onSelectionChange={(key) => key != null && update({ maxMemoryMb: Number(key) })}>
-                    {memoryOptions.map((value) => (
-                      <ListBoxItem key={value} id={String(value)} textValue={memoryLabel(value)}>
-                        {memoryLabel(value)}
-                      </ListBoxItem>
-                    ))}
-                  </Select>
+                <SettingRow label="最大内存" description="分给游戏的 Java 堆内存上限。版本里没单独设置时用这个。" block>
+                  <MemorySlider value={settings.maxMemoryMb} onCommit={(value) => update({ maxMemoryMb: value })} />
+                </SettingRow>
+                <SettingRow label="启动前清理内存" description="拉起游戏前把其他程序暂时不用的内存挪出去，给游戏腾空间。和文件检查同时进行，基本不耽误时间。">
+                  <Switch aria-label="启动前清理内存" isSelected={settings.cleanMemoryOnLaunch} onChange={(value) => update({ cleanMemoryOnLaunch: value })} />
+                </SettingRow>
+              </SettingSection>
+              <SettingSection title="启动器">
+                <SettingRow label="关闭窗口时退到托盘" description="游戏是独立进程，关掉或退出启动器都不会让游戏退出。">
+                  <Switch aria-label="关闭窗口时退到托盘" isSelected={settings.closeToTray} onChange={(value) => update({ closeToTray: value })} />
                 </SettingRow>
               </SettingSection>
             </>
@@ -292,7 +296,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                 title="下载"
                 description="安装游戏、加载器和资源时使用。"
                 actions={
-                  <Button size="sm" icon={<Gauge size={14} />} isDisabled={probing} onPress={() => void runProbe()}>
+                  <Button icon={<Gauge size={18} />} isDisabled={probing} onPress={() => void runProbe()}>
                     {probing ? '正在测速…' : '测速'}
                   </Button>
                 }
@@ -350,6 +354,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
           ) : (
             <>
               <PageHead title="Inkstone Minecraft" description={`版本 ${version} · 可独立运行，也可作为砚的插件。`} />
+              <UpdateSection />
               <SettingSection title="数据">
                 <SettingRow label="账号" description="只保存类型、名字、UUID 与皮肤站地址；正版与外置登录的令牌接入后会加密保存。" />
                 <SettingRow label="删除" description="删除版本、Mod 与存档时移到回收站。" />

@@ -18,6 +18,7 @@ import type { InstanceIconOption, InstanceTrashRecord, ResourcePackEntry, SaveEn
 import { forgetInstanceIcons, InstanceIcon } from './InstanceIcon.tsx'
 import { LOADER_LABEL, memoryLabel } from './labels.ts'
 import { cleanError, formatSize, ModList } from './ModList.tsx'
+import { MemorySlider } from './MemorySlider.tsx'
 import { ConfirmDialog, Sheet } from './overlays.tsx'
 import { EmptyBlock, PageHead, SubNavLayout, type SubNavGroup } from './SubNavLayout.tsx'
 
@@ -27,24 +28,24 @@ const GROUPS: SubNavGroup<Section>[] = [
   {
     label: '游戏',
     items: [
-      { id: 'overview', label: '概览', icon: <LayoutDashboard size={16} /> },
-      { id: 'settings', label: '设置', icon: <SlidersHorizontal size={16} /> },
-      { id: 'repair', label: '修复', icon: <Wrench size={16} /> }
+      { id: 'overview', label: '概览', icon: <LayoutDashboard size={20} /> },
+      { id: 'settings', label: '设置', icon: <SlidersHorizontal size={20} /> },
+      { id: 'repair', label: '修复', icon: <Wrench size={20} /> }
     ]
   },
   {
     label: '资源',
     items: [
-      { id: 'mods', label: 'Mod', icon: <Puzzle size={16} /> },
-      { id: 'resourcepacks', label: '资源包', icon: <Package size={16} /> },
-      { id: 'shaderpacks', label: '光影', icon: <Sparkles size={16} /> },
-      { id: 'saves', label: '存档', icon: <Archive size={16} /> },
-      { id: 'screenshots', label: '截图', icon: <Camera size={16} /> }
+      { id: 'mods', label: 'Mod', icon: <Puzzle size={20} /> },
+      { id: 'resourcepacks', label: '资源包', icon: <Package size={20} /> },
+      { id: 'shaderpacks', label: '光影', icon: <Sparkles size={20} /> },
+      { id: 'saves', label: '存档', icon: <Archive size={20} /> },
+      { id: 'screenshots', label: '截图', icon: <Camera size={20} /> }
     ]
   },
   {
     label: '记录',
-    items: [{ id: 'records', label: '日志与崩溃', icon: <FileText size={16} /> }]
+    items: [{ id: 'records', label: '日志与崩溃', icon: <FileText size={20} /> }]
   }
 ]
 
@@ -273,19 +274,18 @@ function OverridePane({ folder, versionId, overview, javas, onSaved }: OverrideP
             ))}
           </Select>
         </SettingRow>
-        <SettingRow label="最大内存" description={`跟随全局时用 ${memoryLabel(overview.effective.maxMemoryMb)}`}>
-          <TextField
-            aria-label="最大内存（MB）"
-            size="sm"
-            inputMode="numeric"
-            value={draft.maxMemoryMb === null ? '' : String(draft.maxMemoryMb)}
-            placeholder={String(overview.effective.maxMemoryMb)}
-            onChange={(value) => {
-              const parsed = Number(value.replace(/[^0-9]/g, ''))
-              patch({ maxMemoryMb: value.trim() && Number.isFinite(parsed) && parsed >= 512 ? Math.round(parsed) : null })
-            }}
+        <SettingRow label="单独设置内存" description={draft.maxMemoryMb === null ? `跟随全局，现在是 ${memoryLabel(overview.effective.maxMemoryMb)}` : '只对这个版本生效'}>
+          <Switch
+            aria-label="单独设置内存"
+            isSelected={draft.maxMemoryMb !== null}
+            onChange={(value) => patch({ maxMemoryMb: value ? overview.effective.maxMemoryMb : null })}
           />
         </SettingRow>
+        {draft.maxMemoryMb !== null ? (
+          <SettingRow label="最大内存" block indent>
+            <MemorySlider value={draft.maxMemoryMb} onCommit={(value) => patch({ maxMemoryMb: value })} />
+          </SettingRow>
+        ) : null}
         <SettingRow label="JVM 参数" description="留空跟随全局。">
           <TextField aria-label="JVM 参数" size="sm" value={draft.jvmArgs ?? ''} placeholder="例如 -XX:+UseG1GC" onChange={(value) => patch({ jvmArgs: value.trim() ? value : null })} />
         </SettingRow>

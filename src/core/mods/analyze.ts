@@ -1,13 +1,28 @@
 import type { ModEntry, ModIssue } from '../../shared/mods-api.ts'
 import { matchesVersionRange } from './mc-range.ts'
 
+const ANY_RANGE = /^\s*(\*|any)?\s*$/i
+
+/**
+ * 声明的「不兼容」只在对方版本落在范围里时才算。
+ * 只是通过 provides / 内嵌提供这个 id 的 Mod 版本未知，只有范围是「任意版本」时才算，免得误报。
+ */
+function breaksWith(range: string | null, provider: ModEntry, depId: string): boolean {
+  const any = !range || ANY_RANGE.test(range)
+  if (provider.modId?.toLowerCase() !== depId) return any
+  if (any) return true
+  if (!provider.version) return false
+  return matchesVersionRange(range, provider.version)
+}
+
 export interface AnalyzeContext {
   loader: string
   minecraftVersion: string | null
 }
 
 const CONNECTOR_IDS = new Set(['connector', 'sinytraconnector', 'connectormod', 'connectivity', 'forgedfabric'])
-const PLATFORM_IDS = new Set(['minecraft', 'java', 'fabricloader', 'fabric-loader', 'fabric_loader', 'quilt_loader', 'quilt-loader', 'forge', 'neoforge', 'modloader', 'javafml', 'lowcodefml'])
+// 加载器自带、不需要单独装的：Fabric Loader 0.15+ 和 NeoForge 都内置了 MixinExtras
+const PLATFORM_IDS = new Set(['minecraft', 'java', 'mixinextras', 'fabricloader', 'fabric-loader', 'fabric_loader', 'quilt_loader', 'quilt-loader', 'forge', 'neoforge', 'modloader', 'javafml', 'lowcodefml'])
 const FABRIC_FAMILY = new Set(['fabric', 'quilt'])
 const FORGE_FAMILY = new Set(['forge', 'neoforge', 'legacy'])
 
@@ -42,7 +57,8 @@ export function analyzeMods(mods: ModEntry[], context: AnalyzeContext): ModEntry
   const modIdCounts = new Map<string, number>()
   for (const mod of mods) {
     const id = mod.modId?.toLowerCase()
-    if (!id) continue
+    // 停用的副本不算重复
+    if (!id || !mod.enabled) continue
     modIdCounts.set(id, (modIdCounts.get(id) ?? 0) + 1)
   }
 
@@ -57,7 +73,12 @@ export function analyzeMods(mods: ModEntry[], context: AnalyzeContext): ModEntry
       const providers = active.get(depId) ?? []
       const usable = providers.filter((item) => item.enabled)
       if (dep.kind === 'breaks') {
-        if (allProvides.has(depId)) issues.push({ kind: 'incompatible', text: `与 ${dep.modId} 不兼容`, modId: dep.modId })
+        // 只看启用中的、不是自己的 Mod；自己停用了也不报
+        const clash = usable.find((item) => item !== mod && breaksWith(dep.versionRange, item, depId))
+        if (mod.enabled && clash) {
+          const range = dep.versionRange && !ANY_RANGE.test(dep.versionRange) ? `（对方 ${dep.versionRange} 的版本）` : ''
+          issues.push({ kind: 'incompatible', text: `与 ${clash.name ?? dep.modId}${clash.version ? ` ${clash.version}` : ''} 不兼容${range}`, modId: dep.modId })
+        }
         continue
       }
       if (!dep.required || usable.length > 0) continue
@@ -72,7 +93,7 @@ export function analyzeMods(mods: ModEntry[], context: AnalyzeContext): ModEntry
     } else if (loaderMismatch(mod.kind, context.loader, connector)) {
       issues.push({ kind: 'loader-mismatch', text: '加载器不匹配', modId: mod.modId })
     }
-    if (mod.modId && (modIdCounts.get(mod.modId.toLowerCase()) ?? 0) > 1) {
+    if (mod.enabled && mod.modId && (modIdCounts.get(mod.modId.toLowerCase()) ?? 0) > 1) {
       issues.push({ kind: 'duplicate', text: '重复安装', modId: mod.modId })
     }
     mod.issues = issues

@@ -1,6 +1,8 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
 import { existsSync } from 'node:fs'
+import { freemem, totalmem } from 'node:os'
+import { readFile } from 'node:fs/promises'
 import type { DownloadProbe, FolderTarget, InstallRequest, LauncherSettings, LaunchRequest, LaunchStatus, LogLine, TaskInfo } from '../shared/api.ts'
 import type { CrashActionRequest, CrashDiagnosis } from '../shared/crash-api.ts'
 import type { PreflightRequest } from '../shared/launch-api.ts'
@@ -10,6 +12,7 @@ const FOLDER_TARGETS: readonly FolderTarget[] = ['version', 'game', 'mods', 'sav
 import { CRAFT_CHANNELS } from '../shared/channels.ts'
 import { MANIFEST_URL, MIRROR_ORIGIN, USER_AGENT } from '../core/download/sources.ts'
 import { CraftService } from '../core/service.ts'
+import { checkForUpdate, installUpdate, startUpdater, updateStatus } from './updater.ts'
 import type { InstanceOverride, ModrinthSearchQuery, ModUpdateInfo } from '../shared/mods-api.ts'
 import type { ContentSearchQuery } from '../shared/download-api.ts'
 
@@ -18,8 +21,12 @@ const service = new CraftService({
 })
 
 let window: BrowserWindow | null = null
+let tray: Tray | null = null
+let quitting = false
+let closeToTray = true
+let trayHinted = false
 
-const TITLE_BAR_HEIGHT = 40
+const TITLE_BAR_HEIGHT = 48
 
 const PROBE_TARGETS: { source: DownloadProbe['source']; label: string; url: string }[] = [
   { source: 'bmclapi', label: 'BMCLAPI', url: `${MIRROR_ORIGIN}/mc/game/version_manifest_v2.json` },
@@ -44,7 +51,7 @@ async function probeDownloadSources(): Promise<DownloadProbe[]> {
 
 function titleBarColors(): { color: string; symbolColor: string; height: number } {
   const dark = nativeTheme.shouldUseDarkColors
-  return { color: dark ? '#101010' : '#FAFAF9', symbolColor: dark ? '#F0EFEC' : '#0B0B0B', height: TITLE_BAR_HEIGHT }
+  return { color: '#00000000', symbolColor: dark ? '#EEEEEB' : '#141513', height: TITLE_BAR_HEIGHT }
 }
 
 function createWindow(): BrowserWindow {
@@ -56,7 +63,7 @@ function createWindow(): BrowserWindow {
     title: 'Inkstone Minecraft',
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#151515' : '#FCFCFB',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#131314' : '#ECEDE9',
     titleBarStyle: 'hidden',
     titleBarOverlay: titleBarColors(),
     webPreferences: {
@@ -78,8 +85,81 @@ function createWindow(): BrowserWindow {
 }
 
 function applyTheme(settings: LauncherSettings): LauncherSettings {
+  closeToTray = settings.closeToTray
   if (nativeTheme.themeSource !== settings.theme) nativeTheme.themeSource = settings.theme
   return settings
+}
+
+/** 16×16 的草方块侧面，按像素坐标哈希出噪点，放大到 32 给高分屏 */
+function trayIcon(): Electron.NativeImage {
+  const size = 32
+  const pixels = Buffer.alloc(size * size * 4)
+  const hash = (x: number, y: number) => {
+    let h = (x * 374761393 + y * 668265263) | 0
+    h = Math.imul(h ^ (h >>> 13), 1274126177)
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+  }
+  for (let y = 0; y < 16; y += 1) {
+    for (let x = 0; x < 16; x += 1) {
+      const n = hash(x, y)
+      const drip = y < 4 || (y < 6 && hash(x, 99) > 0.55) || (y === 6 && hash(x, 98) > 0.8)
+      const [r, g, b] = drip ? [n > 0.6 ? 0x7c : 0x5d, n > 0.6 ? 0xbd : 0x9c, n > 0.6 ? 0x4a : 0x34] : n > 0.75 ? [0x96, 0x6c, 0x4a] : n > 0.3 ? [0x79, 0x55, 0x3a] : [0x59, 0x3d, 0x29]
+      for (let dy = 0; dy < 2; dy += 1) {
+        for (let dx = 0; dx < 2; dx += 1) {
+          const at = ((y * 2 + dy) * size + x * 2 + dx) * 4
+          pixels[at] = b
+          pixels[at + 1] = g
+          pixels[at + 2] = r
+          pixels[at + 3] = 255
+        }
+      }
+    }
+  }
+  return nativeImage.createFromBitmap(pixels, { width: size, height: size, scaleFactor: 2 })
+}
+
+function showWindow(): void {
+  if (!window || window.isDestroyed()) {
+    window = createWindow()
+    watchWindow(window)
+    return
+  }
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+}
+
+function quit(): void {
+  quitting = true
+  app.quit()
+}
+
+function createTray(): void {
+  tray = new Tray(trayIcon())
+  tray.setToolTip('Inkstone Minecraft')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: '显示 Inkstone', click: showWindow },
+      { type: 'separator' },
+      { label: '退出启动器（游戏不受影响）', click: quit }
+    ])
+  )
+  tray.on('click', showWindow)
+}
+
+function watchWindow(win: BrowserWindow): void {
+  win.on('close', (event) => {
+    if (quitting || !closeToTray) return
+    event.preventDefault()
+    win.hide()
+    if (!trayHinted && tray && process.platform === 'win32') {
+      trayHinted = true
+      tray.displayBalloon({ title: 'Inkstone 还在托盘里', content: '游戏照常运行。右键托盘图标可以退出启动器。', iconType: 'none', noSound: true })
+    }
+  })
+  win.on('closed', () => {
+    if (window === win) window = null
+  })
 }
 
 function broadcast(channel: string, payload: unknown): void {
@@ -109,6 +189,13 @@ function registerIpc(): void {
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })
   ipcMain.handle(CRAFT_CHANNELS.probeDownloadSources, probeDownloadSources)
+  ipcMain.handle(CRAFT_CHANNELS.updateStatus, () => updateStatus())
+  ipcMain.handle(CRAFT_CHANNELS.updateCheck, () => checkForUpdate())
+  ipcMain.handle(CRAFT_CHANNELS.updateInstall, () => {
+    quitting = true
+    installUpdate()
+  })
+  ipcMain.handle(CRAFT_CHANNELS.systemMemory, () => ({ totalMb: Math.round(totalmem() / 1048576), freeMb: Math.round(freemem() / 1048576) }))
   ipcMain.handle(CRAFT_CHANNELS.pclSnapshot, () => service.pclSnapshot())
   ipcMain.handle(CRAFT_CHANNELS.importPcl, () => service.importPcl())
   ipcMain.handle(CRAFT_CHANNELS.addOfflineAccount, (_event, name: string) => service.addOfflineAccount(String(name ?? '')))
@@ -128,6 +215,14 @@ function registerIpc(): void {
   ipcMain.handle(CRAFT_CHANNELS.cancelTask, (_event, id: string) => service.tasks.cancel(String(id ?? '')))
   ipcMain.handle(CRAFT_CHANNELS.clearFinishedTasks, () => service.tasks.clearFinished())
   service.tasks.on('task', (task: TaskInfo) => broadcast(CRAFT_CHANNELS.taskEvent, task))
+  ipcMain.handle(CRAFT_CHANNELS.pickSkin, async (_event, id: unknown) => {
+    const accountId = requiredText(id, '账号')
+    const options = { title: '选择皮肤图片', properties: ['openFile' as const], filters: [{ name: '皮肤 PNG', extensions: ['png'] }] }
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+    const path = result.canceled ? null : result.filePaths[0]
+    if (!path) return null
+    return service.setSkin(accountId, await readFile(path))
+  })
   ipcMain.handle(CRAFT_CHANNELS.pickFolder, async () => {
     const options = { title: '选择 .minecraft 游戏目录', properties: ['openDirectory' as const] }
     const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
@@ -393,11 +488,7 @@ function installRequestArg(value: unknown): InstallRequest {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (!window) return
-    if (window.isMinimized()) window.restore()
-    window.focus()
-  })
+  app.on('second-instance', showWindow)
   void app.whenReady().then(async () => {
     app.setAppUserModelId('com.yudatoux.inkstone.minecraft')
     registerIpc()
@@ -406,17 +497,19 @@ if (!app.requestSingleInstanceLock()) {
     registerVersionIpc()
     applyTheme(await service.settings())
     window = createWindow()
+    watchWindow(window)
+    createTray()
+    startUpdater((status) => broadcast(CRAFT_CHANNELS.updateEvent, status))
     nativeTheme.on('updated', () => {
       if (!window || window.isDestroyed()) return
       window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#151515' : '#FCFCFB')
       if (process.platform !== 'darwin') window.setTitleBarOverlay(titleBarColors())
     })
-    window.on('closed', () => {
-      window = null
-    })
   })
   app.on('window-all-closed', () => app.quit())
   app.on('before-quit', () => {
+    quitting = true
+    tray?.destroy()
     service.dispose()
   })
 }

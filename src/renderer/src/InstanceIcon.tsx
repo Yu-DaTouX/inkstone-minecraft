@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactElement } from 'react'
+import { BlockIcon } from './BlockIcon.tsx'
 
 const requests = new Map<string, Promise<string | null>>()
 
@@ -14,12 +15,6 @@ function loadIcon(folder: string, versionId: string): Promise<string | null> {
 
 export function forgetInstanceIcons(): void {
   requests.clear()
-}
-
-function hue(seed: string): number {
-  let hash = 0
-  for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
-  return hash % 360
 }
 
 interface Props {
@@ -40,11 +35,8 @@ export function InstanceIcon({ folder, versionId, size = 32 }: Props): ReactElem
     }
   }, [folder, versionId])
 
-  const style = { '--icon': `${size}px`, '--hue': hue(versionId) } as CSSProperties
+  const style = { '--icon': `${size}px` } as CSSProperties
   if (src) return <img className="res-icon" src={src} alt="" style={style} draggable={false} />
-  return (
-    <span className="res-icon res-icon--generated" data-loading={src === undefined ? '1' : undefined} style={style} aria-hidden="true">
-      {src === null ? Array.from(versionId.trim())[0]?.toUpperCase() : null}
-    </span>
-  )
+  if (src === null) return <BlockIcon version={versionId} size={size} className="res-icon res-icon--block" />
+  return <span className="res-icon res-icon--generated" data-loading="1" style={style} aria-hidden="true" />
 }

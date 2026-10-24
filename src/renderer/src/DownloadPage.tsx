@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
-import { Boxes, Download, ExternalLink, FileArchive, Package, Pickaxe, Puzzle, Sparkles } from 'lucide-react'
+import { ArrowLeft, Boxes, ChevronRight, Download, ExternalLink, FileArchive, Package, Pickaxe, Puzzle, Sparkles } from 'lucide-react'
 import { Header } from 'react-aria-components'
 import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
@@ -10,6 +10,9 @@ import { ProgressBar } from './ui/Progress'
 import { Select } from './ui/Select'
 import { Switch } from './ui/Switch'
 import { SearchField, TextField } from './ui/TextField'
+import { SegmentedControl } from './ui/SegmentedControl'
+import { LOADER_BIOME } from './labels.ts'
+import { BlockIcon } from './BlockIcon.tsx'
 import type { InstallKind, LauncherSettings, LoaderVersion, LoaderVersions, MinecraftVersionEntry, MinecraftVersionList, TaskInfo, TaskProgress } from '../../shared/api.ts'
 import type { ContentCategory, ContentInstallType, ModpackSummary } from '../../shared/download-api.ts'
 import type { ModrinthHit, ModrinthProject, ModrinthSearchResult, ModrinthSort, ModrinthVersion } from '../../shared/mods-api.ts'
@@ -23,15 +26,15 @@ type VersionGroup = MinecraftVersionEntry['group']
 const GROUPS: SubNavGroup<Section>[] = [
   {
     label: '安装',
-    items: [{ id: 'minecraft', label: 'Minecraft', icon: <Pickaxe size={16} /> }]
+    items: [{ id: 'minecraft', label: 'Minecraft', icon: <Pickaxe size={20} /> }]
   },
   {
     label: '社区资源',
     items: [
-      { id: 'mods', label: 'Mod', icon: <Puzzle size={16} /> },
-      { id: 'resourcepacks', label: '资源包', icon: <Package size={16} /> },
-      { id: 'shaderpacks', label: '光影', icon: <Sparkles size={16} /> },
-      { id: 'modpacks', label: '整合包', icon: <Boxes size={16} /> }
+      { id: 'mods', label: 'Mod', icon: <Puzzle size={20} /> },
+      { id: 'resourcepacks', label: '资源包', icon: <Package size={20} /> },
+      { id: 'shaderpacks', label: '光影', icon: <Sparkles size={20} /> },
+      { id: 'modpacks', label: '整合包', icon: <Boxes size={20} /> }
     ]
   }
 ]
@@ -99,20 +102,20 @@ const CATEGORY_LABELS: Record<string, string> = {
 interface LoaderCardProps {
   label: string
   hint: string
+  swatch: string
   selected: boolean
   disabled: boolean
   onSelect(): void
-  children?: ReactNode
 }
 
-function LoaderCard({ label, hint, selected, disabled, onSelect, children }: LoaderCardProps): ReactElement {
+function LoaderCard({ label, hint, swatch, selected, disabled, onSelect }: LoaderCardProps): ReactElement {
   return (
-    <li className="install-loader" data-selected={selected ? '1' : undefined} data-disabled={disabled ? '1' : undefined}>
-      <button type="button" className="install-loader__pick" aria-pressed={selected} disabled={disabled} onClick={onSelect}>
-        <span className="install-loader__name">{label}</span>
-        <span className="install-loader__hint">{hint}</span>
+    <li>
+      <button type="button" className="loader-tile" aria-pressed={selected} disabled={disabled} onClick={onSelect}>
+        <i className="loader-tile__swatch" style={{ background: swatch }} aria-hidden="true" />
+        <span className="loader-tile__name">{label}</span>
+        <span className="loader-tile__hint">{hint}</span>
       </button>
-      {selected && children ? <div className="install-loader__extra">{children}</div> : null}
     </li>
   )
 }
@@ -783,7 +786,12 @@ function ModpackImport(): ReactElement {
   )
 }
 
-export function DownloadPage(): ReactElement {
+interface DownloadPageProps {
+  /** 换背后地图的种子：挑中哪个版本，世界就换成哪个 */
+  onWorld?(seed: string): void
+}
+
+export function DownloadPage({ onWorld }: DownloadPageProps): ReactElement {
   const [section, setSection] = useState<Section>('minecraft')
   const [settings, setSettings] = useState<LauncherSettings | null>(null)
   const [list, setList] = useState<MinecraftVersionList | null>(null)
@@ -934,7 +942,11 @@ export function DownloadPage(): ReactElement {
     return [...filtered].sort((a, b) => Number(b.latest) - Number(a.latest))
   }, [group, list, query])
 
-  const pickVersion = (id: string): void => {
+  useEffect(() => {
+    if (minecraft) onWorld?.(minecraft)
+  }, [minecraft, onWorld])
+
+  const pickVersion = (id: string | null): void => {
     setMinecraft(id)
     setCustomName(false)
     setError('')
@@ -967,9 +979,107 @@ export function DownloadPage(): ReactElement {
 
   const progress = percentOf(task)
 
+  const loaderHint = (versions: LoaderVersions | null, failure: string): string =>
+    versions
+      ? versions.loaders.length > 0
+        ? `推荐 ${versions.recommended ?? versions.loaders[0]?.version ?? '未定'}`
+        : (versions.reason ?? '没有可用版本')
+      : failure || (loadersLoading ? '正在获取…' : '没有可用版本')
+
+  const loaderOptions: Record<InstallKind, ReactNode> = {
+    vanilla: null,
+    fabric: (
+      <>
+        <Select label="Fabric 版本" selectedKey={fabricVersion} onSelectionChange={(key) => key != null && setFabricVersion(String(key))}>
+          {(fabric?.loaders ?? []).map((item) => (
+            <ListBoxItem key={item.version} id={item.version} textValue={item.version}>
+              {item.stable ? item.version : `${item.version}（测试版）`}
+            </ListBoxItem>
+          ))}
+        </Select>
+        <Switch isSelected={companions} onChange={setCompanions}>
+          同时安装 Fabric API
+        </Switch>
+      </>
+    ),
+    quilt: (
+      <>
+        <Select label="Quilt 版本" selectedKey={quiltVersion} onSelectionChange={(key) => key != null && setQuiltVersion(String(key))}>
+          {(quilt?.loaders ?? []).map((item) => (
+            <ListBoxItem key={item.version} id={item.version} textValue={item.version}>
+              {item.version}
+            </ListBoxItem>
+          ))}
+        </Select>
+        <Switch isSelected={companions} onChange={setCompanions}>
+          同时安装 QSL
+        </Switch>
+      </>
+    ),
+    forge: (
+      <>
+        <LoaderVersionPicker label="Forge" versions={forge?.loaders ?? []} recommended={forge?.recommended ?? null} selected={forgeVersion} onSelect={setForgeVersion} />
+        <p className="page__muted">安装时用 Java 运行官方安装处理器，会读设置里添加的 Java。</p>
+      </>
+    ),
+    neoforge: (
+      <>
+        <LoaderVersionPicker label="NeoForge" versions={neoforge?.loaders ?? []} recommended={neoforge?.recommended ?? null} selected={neoforgeVersion} onSelect={setNeoForgeVersion} />
+        <p className="page__muted">安装时用 Java 运行官方安装处理器，会读设置里添加的 Java。</p>
+      </>
+    )
+  }
+
+  const picked = list?.versions.find((entry) => entry.id === minecraft) ?? null
+
+  // 左栏底部的安装坞：和启动页的「启动游戏」同一个位置、同一种大按钮
+  const dock =
+    section === 'minecraft' ? (
+      <div className="dock">
+        <Button variant="primary" block className={busy ? 'go go--checking' : 'go'} isDisabled={!canInstall} onPress={() => void start()}>
+          <span className="go__label">{busy ? '正在安装…' : '安装'}</span>
+          <span className="go__version">{minecraft ? name.trim() || defaultName : '先选一个游戏版本'}</span>
+        </Button>
+        {task && (task.state === 'running' || task.state === 'queued') ? (
+          <div className="dock__progress">
+            <ProgressBar aria-label="安装进度" label={task.detail ?? '正在安装'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" />
+            <div className="dock__row">
+              <span className="page__muted">{progressText(task.progress) ?? '正在准备'}</span>
+              <Button size="sm" variant="ghost" onPress={cancel}>
+                取消
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {task?.state === 'done' ? (
+          <Notice tone="ok" compact>
+            {task.detail ?? '已安装'}，可在启动页选择
+          </Notice>
+        ) : null}
+        {task?.state === 'cancelled' ? (
+          <Notice tone="stall" compact>
+            {task.detail && task.detail.startsWith('已取消') ? task.detail : '安装已取消'}
+          </Notice>
+        ) : null}
+        {task?.state === 'failed' || error ? (
+          <Notice
+            tone="fail"
+            compact
+            action={
+              <Button size="sm" onPress={() => void start()}>
+                重试
+              </Button>
+            }
+          >
+            {task?.state === 'failed' ? (task.error ?? '安装失败') : error}
+          </Notice>
+        ) : null}
+      </div>
+    ) : null
+
   return (
-    <SubNavLayout label="下载" groups={GROUPS} active={section} onChange={(id) => setSection(id)}>
-      <div className="subpage">
+    <SubNavLayout label="下载" groups={GROUPS} active={section} onChange={(id) => setSection(id)} footer={dock}>
+      <div className="subpage" key={section === 'minecraft' && minecraft ? 'configure' : 'pick'}>
         {section === 'mods' ? (
           <ModSearch />
         ) : section === 'resourcepacks' ? (
@@ -977,7 +1087,7 @@ export function DownloadPage(): ReactElement {
             projectType="resourcepack"
             title="资源包"
             description="从 Modrinth 搜索资源包，装到所选版本的 resourcepacks 目录。"
-            icon={<Package size={16} />}
+            icon={<Package size={18} />}
             emptyTitle="还没有能装资源包的版本"
           />
         ) : section === 'shaderpacks' ? (
@@ -985,255 +1095,132 @@ export function DownloadPage(): ReactElement {
             projectType="shader"
             title="光影"
             description="从 Modrinth 搜索光影，装到所选版本的 shaderpacks 目录。"
-            icon={<Sparkles size={16} />}
+            icon={<Sparkles size={18} />}
             emptyTitle="还没有能装光影的版本"
           />
         ) : section === 'modpacks' ? (
           <ModpackImport />
+        ) : settings === null ? (
+          <p className="page__muted">正在读取设置…</p>
+        ) : minecraft ? (
+          <>
+            {/* 第二步：版本已经挑好，选加载器、起名字 */}
+            <header className="pick-head">
+              <BlockIcon version={minecraft} size={56} className="pick-head__icon" />
+              <div className="pick-head__text">
+                <h1 className="pick-head__title">{minecraft}</h1>
+                <p className="pick-head__meta">
+                  {picked ? `${GROUP_LABEL[picked.group]} · ${picked.releaseTime ? picked.releaseTime.slice(0, 10) : '时间未知'}` : 'Minecraft'}
+                </p>
+              </div>
+              <Button variant="ghost" icon={<ArrowLeft size={16} />} onPress={() => pickVersion(null)}>
+                换个版本
+              </Button>
+            </header>
+            <section className="install-step" aria-labelledby="install-loader-title">
+              <h2 className="install-step__title" id="install-loader-title">
+                加载器
+              </h2>
+              {loadersError ? (
+                <Notice tone="fail" compact>
+                  {loadersError}
+                </Notice>
+              ) : null}
+              <ul className="loader-tiles" aria-label="加载器">
+                <LoaderCard label="原版" hint="不装加载器" swatch={LOADER_BIOME.vanilla} selected={kind === 'vanilla'} disabled={false} onSelect={() => setKind('vanilla')} />
+                <LoaderCard label="Fabric" hint={loaderHint(fabric, '')} swatch={LOADER_BIOME.fabric} selected={kind === 'fabric'} disabled={!fabric || fabric.loaders.length === 0} onSelect={() => setKind('fabric')} />
+                <LoaderCard label="Quilt" hint={loaderHint(quilt, '')} swatch={LOADER_BIOME.quilt} selected={kind === 'quilt'} disabled={!quilt || quilt.loaders.length === 0} onSelect={() => setKind('quilt')} />
+                <LoaderCard label="Forge" hint={loaderHint(forge, forgeError)} swatch={LOADER_BIOME.forge} selected={kind === 'forge'} disabled={!forge || forge.loaders.length === 0} onSelect={() => setKind('forge')} />
+                <LoaderCard
+                  label="NeoForge"
+                  hint={loaderHint(neoforge, neoforgeError)}
+                  swatch={LOADER_BIOME.neoforge}
+                  selected={kind === 'neoforge'}
+                  disabled={!neoforge || neoforge.loaders.length === 0}
+                  onSelect={() => setKind('neoforge')}
+                />
+              </ul>
+              {loaderOptions[kind] ? (
+                <div className="loader-options" key={kind}>
+                  {loaderOptions[kind]}
+                </div>
+              ) : null}
+            </section>
+            <section className="install-step" aria-labelledby="install-target-title">
+              <h2 className="install-step__title" id="install-target-title">
+                名称与目录
+              </h2>
+              <div className="install-form">
+                <TextField
+                  label="版本名称"
+                  value={name}
+                  placeholder={defaultName}
+                  onChange={(value) => {
+                    setCustomName(true)
+                    setName(value)
+                  }}
+                />
+                {settings.folders.length === 0 ? (
+                  <p className="page__muted">添加游戏目录后才能安装。</p>
+                ) : (
+                  <Select label="游戏目录" selectedKey={folder} onSelectionChange={(key) => key != null && setFolderChoice(String(key))}>
+                    {settings.folders.map((item) => (
+                      <ListBoxItem key={item.path} id={item.path} textValue={item.name}>
+                        {item.name}
+                      </ListBoxItem>
+                    ))}
+                  </Select>
+                )}
+              </div>
+            </section>
+          </>
         ) : (
           <>
-            <PageHead title="安装 Minecraft" description="选好游戏版本与加载器，安装完成后可在启动页选择。默认从 BMCLAPI 下载，失败时换官方源。" />
-            {settings === null ? (
-              <p className="page__muted">正在读取设置…</p>
+            {/* 第一步：挑游戏版本 */}
+            <PageHead title="安装 Minecraft" description="先挑一个游戏版本，再选加载器。默认从 BMCLAPI 下载，失败时换官方源。" />
+            {settings.folders.length === 0 ? (
+              <Notice tone="stall" compact>
+                还没有游戏目录，先到设置 → 游戏目录里添加一个，再回来安装。
+              </Notice>
+            ) : null}
+            <div className="install-toolbar">
+              <SegmentedControl label="版本类型" value={group} options={GROUP_FILTERS.map((item) => ({ value: item.id, label: item.label }))} onChange={setGroup} />
+              <SearchField aria-label="搜索版本" className="install-search" placeholder="搜索版本" value={query} onChange={setQuery} />
+            </div>
+            {listLoading ? (
+              <p className="page__muted">正在获取版本清单…</p>
+            ) : listError ? (
+              <Notice
+                tone="fail"
+                compact
+                action={
+                  <Button size="sm" onPress={loadList}>
+                    重试
+                  </Button>
+                }
+              >
+                {listError}
+              </Notice>
+            ) : visible.length === 0 ? (
+              <p className="page__muted">{query ? '没有匹配的版本。' : '这一类还没有版本。'}</p>
             ) : (
-              <>
-                {settings.folders.length === 0 ? (
-                  <Notice tone="stall" compact>
-                    还没有游戏目录，先到设置 → 游戏目录里添加一个，再回来安装。
-                  </Notice>
-                ) : null}
-                <section className="install-step" aria-labelledby="install-version-title">
-                  <h2 className="install-step__title" id="install-version-title">
-                    选择游戏版本
-                  </h2>
-                  <div className="install-toolbar">
-                    <div className="install-filter" role="group" aria-label="版本类型">
-                      {GROUP_FILTERS.map((item) => (
-                        <Button key={item.id} size="sm" variant={group === item.id ? 'secondary' : 'ghost'} aria-pressed={group === item.id} onPress={() => setGroup(item.id)}>
-                          {item.label}
-                        </Button>
-                      ))}
-                    </div>
-                    <SearchField aria-label="搜索版本" className="install-search" placeholder="搜索版本" value={query} onChange={setQuery} />
-                  </div>
-                  {listLoading ? (
-                    <p className="page__muted">正在获取版本清单…</p>
-                  ) : listError ? (
-                    <Notice
-                      tone="fail"
-                      compact
-                      action={
-                        <Button size="sm" onPress={loadList}>
-                          重试
-                        </Button>
-                      }
-                    >
-                      {listError}
-                    </Notice>
-                  ) : visible.length === 0 ? (
-                    <p className="page__muted">{query ? '没有匹配的版本。' : '这一类还没有版本。'}</p>
-                  ) : (
-                    <ul className="install-list" aria-label="Minecraft 版本">
-                      {visible.map((entry) => (
-                        <li key={entry.id}>
-                          <button
-                            type="button"
-                            className="install-row"
-                            aria-pressed={minecraft === entry.id}
-                            data-selected={minecraft === entry.id ? '1' : undefined}
-                            onClick={() => pickVersion(entry.id)}
-                          >
-                            <span className="install-row__icon" aria-hidden="true">
-                              <Boxes size={16} />
-                            </span>
-                            <span className="install-row__main">
-                              <span className="install-row__name">{entry.id}</span>
-                              <span className="install-row__meta">
-                                {GROUP_LABEL[entry.group]} · {entry.releaseTime ? entry.releaseTime.slice(0, 10) : '时间未知'}
-                              </span>
-                            </span>
-                            {entry.latest ? <Badge tone="accent">最新</Badge> : null}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
-                {minecraft ? (
-                  <section className="install-step" aria-labelledby="install-loader-title">
-                    <h2 className="install-step__title" id="install-loader-title">
-                      选择加载器
-                    </h2>
-                    {loadersLoading ? <p className="page__muted">正在获取加载器版本…</p> : null}
-                    {loadersError ? (
-                      <Notice tone="fail" compact>
-                        {loadersError}
-                      </Notice>
-                    ) : null}
-                    <ul className="install-loaders" aria-label="加载器">
-                      <LoaderCard label="原版" hint="Minecraft 官方版本" selected={kind === 'vanilla'} disabled={false} onSelect={() => setKind('vanilla')} />
-                      <LoaderCard
-                        label="Fabric"
-                        hint={fabric ? (fabric.loaders.length > 0 ? `${fabric.loaders.length} 个版本，推荐 ${fabric.recommended ?? '未定'}` : (fabric.reason ?? '没有可用版本')) : loadersLoading ? '正在获取版本…' : '没有可用版本'}
-                        selected={kind === 'fabric'}
-                        disabled={!fabric || fabric.loaders.length === 0}
-                        onSelect={() => setKind('fabric')}
-                      >
-                        <Select aria-label="Fabric 版本" selectedKey={fabricVersion} onSelectionChange={(key) => key != null && setFabricVersion(String(key))}>
-                          {(fabric?.loaders ?? []).map((item) => (
-                            <ListBoxItem key={item.version} id={item.version} textValue={item.version}>
-                              {item.stable ? item.version : `${item.version}（测试版）`}
-                            </ListBoxItem>
-                          ))}
-                        </Select>
-                        <Switch isSelected={companions} onChange={setCompanions}>
-                          同时安装 Fabric API
-                        </Switch>
-                      </LoaderCard>
-                      <LoaderCard
-                        label="Quilt"
-                        hint={quilt ? (quilt.loaders.length > 0 ? `${quilt.loaders.length} 个版本，推荐 ${quilt.recommended ?? '未定'}` : (quilt.reason ?? '没有可用版本')) : loadersLoading ? '正在获取版本…' : '没有可用版本'}
-                        selected={kind === 'quilt'}
-                        disabled={!quilt || quilt.loaders.length === 0}
-                        onSelect={() => setKind('quilt')}
-                      >
-                        <Select aria-label="Quilt 版本" selectedKey={quiltVersion} onSelectionChange={(key) => key != null && setQuiltVersion(String(key))}>
-                          {(quilt?.loaders ?? []).map((item) => (
-                            <ListBoxItem key={item.version} id={item.version} textValue={item.version}>
-                              {item.version}
-                            </ListBoxItem>
-                          ))}
-                        </Select>
-                        <Switch isSelected={companions} onChange={setCompanions}>
-                          同时安装 QSL
-                        </Switch>
-                      </LoaderCard>
-                      <LoaderCard
-                        label="Forge"
-                        hint={
-                          forge
-                            ? forge.loaders.length > 0
-                              ? `${forge.loaders.length} 个版本，推荐 ${forge.recommended ?? '未定'}`
-                              : (forge.reason ?? '没有可用版本')
-                            : forgeError || (loadersLoading ? '正在获取版本…' : '没有可用版本')
-                        }
-                        selected={kind === 'forge'}
-                        disabled={!forge || forge.loaders.length === 0}
-                        onSelect={() => setKind('forge')}
-                      >
-                        <LoaderVersionPicker label="Forge" versions={forge?.loaders ?? []} recommended={forge?.recommended ?? null} selected={forgeVersion} onSelect={setForgeVersion} />
-                        <p className="page__muted">按推荐 / 最新与版本分组，输入版本号可搜索。与 Fabric、Quilt 互斥。</p>
-                        <p className="page__muted">安装时用 Java 运行官方安装处理器，会读设置里添加的 Java。</p>
-                      </LoaderCard>
-                      <LoaderCard
-                        label="NeoForge"
-                        hint={
-                          neoforge
-                            ? neoforge.loaders.length > 0
-                              ? `${neoforge.loaders.length} 个版本，推荐 ${neoforge.recommended ?? '未定'}`
-                              : (neoforge.reason ?? '没有可用版本')
-                            : neoforgeError || (loadersLoading ? '正在获取版本…' : '没有可用版本')
-                        }
-                        selected={kind === 'neoforge'}
-                        disabled={!neoforge || neoforge.loaders.length === 0}
-                        onSelect={() => setKind('neoforge')}
-                      >
-                        <LoaderVersionPicker label="NeoForge" versions={neoforge?.loaders ?? []} recommended={neoforge?.recommended ?? null} selected={neoforgeVersion} onSelect={setNeoForgeVersion} />
-                        <p className="page__muted">按推荐 / 最新与版本分组，输入版本号可搜索。与 Fabric、Quilt 互斥。</p>
-                        <p className="page__muted">安装时用 Java 运行官方安装处理器，会读设置里添加的 Java。</p>
-                      </LoaderCard>
-                    </ul>
-                  </section>
-                ) : null}
-                {minecraft ? (
-                  <section className="install-step" aria-labelledby="install-target-title">
-                    <h2 className="install-step__title" id="install-target-title">
-                      名称与目录
-                    </h2>
-                    <div className="install-form">
-                      <TextField
-                        label="版本名称"
-                        value={name}
-                        placeholder={defaultName}
-                        onChange={(value) => {
-                          setCustomName(true)
-                          setName(value)
-                        }}
-                      />
-                      {settings.folders.length === 0 ? (
-                        <p className="page__muted">添加游戏目录后才能安装。</p>
-                      ) : (
-                        <Select label="游戏目录" selectedKey={folder} onSelectionChange={(key) => key != null && setFolderChoice(String(key))}>
-                          {settings.folders.map((item) => (
-                            <ListBoxItem key={item.path} id={item.path} textValue={item.name}>
-                              {item.name}
-                            </ListBoxItem>
-                          ))}
-                        </Select>
-                      )}
-                    </div>
-                    <div className="install-actions">
-                      <Button variant="primary" icon={<Pickaxe size={14} />} isDisabled={!canInstall} onPress={() => void start()}>
-                        安装
-                      </Button>
-                      <span className="page__muted">
-                        {kind === 'vanilla' ? '原版' : `${KIND_LABEL[kind]} ${loaderVersion ?? ''}`} · {minecraft}
+              <ul className="install-list" aria-label="Minecraft 版本">
+                {visible.map((entry) => (
+                  <li key={entry.id}>
+                    <button type="button" className="install-row" onClick={() => pickVersion(entry.id)}>
+                      <BlockIcon version={entry.id} size={40} className="install-row__icon" />
+                      <span className="install-row__main">
+                        <span className="install-row__name">{entry.id}</span>
+                        <span className="install-row__meta">
+                          {GROUP_LABEL[entry.group]} · {entry.releaseTime ? entry.releaseTime.slice(0, 10) : '时间未知'}
+                        </span>
                       </span>
-                    </div>
-                    {task ? (
-                      <div className="install-progress" data-state={task.state} data-unit={task.progress?.unit ?? undefined}>
-                        {task.state === 'running' || task.state === 'queued' ? (
-                          <>
-                            <ProgressBar aria-label="安装进度" label={task.detail ?? '正在安装'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" />
-                            <div className="install-actions">
-                              <span className="page__muted">{progressText(task.progress) ?? '正在准备'}</span>
-                              <Button size="sm" variant="ghost" onPress={cancel}>
-                                取消安装
-                              </Button>
-                            </div>
-                          </>
-                        ) : null}
-                        {task.state === 'done' ? (
-                          <Notice tone="ok" compact>
-                            {task.detail ?? '已安装'}，可在启动页选择
-                          </Notice>
-                        ) : null}
-                        {task.state === 'cancelled' ? (
-                          <Notice tone="stall" compact>
-                            {task.detail && task.detail.startsWith('已取消') ? task.detail : '安装已取消'}
-                          </Notice>
-                        ) : null}
-                        {task.state === 'failed' ? (
-                          <Notice
-                            tone="fail"
-                            compact
-                            action={
-                              <Button size="sm" onPress={() => void start()}>
-                                重试
-                              </Button>
-                            }
-                          >
-                            {task.error ?? '安装失败'}
-                          </Notice>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {error ? (
-                      <Notice
-                        tone="fail"
-                        compact
-                        action={
-                          <Button size="sm" onPress={() => void start()}>
-                            重试
-                          </Button>
-                        }
-                      >
-                        {error}
-                      </Notice>
-                    ) : null}
-                  </section>
-                ) : null}
-              </>
+                      {entry.latest ? <Badge tone="accent">最新</Badge> : <span />}
+                      <ChevronRight size={18} className="install-row__go" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </>
         )}
