@@ -13,6 +13,7 @@ export interface ModFileInfo {
   mixins: string[]
   packages: string[]
   enabled: boolean
+  provides?: string[]
 }
 
 export interface DependencyIssue {
@@ -206,6 +207,7 @@ export function modNames(mods: ModFileInfo[]): Map<string, string> {
 
 export function missingDependencies(mods: ModFileInfo[]): DependencyIssue[] {
   const provided = new Set(mods.filter((mod) => mod.enabled).map((mod) => mod.modId).filter((id): id is string => !!id))
+  for (const mod of mods) if (mod.enabled) for (const id of mod.provides ?? []) provided.add(id)
   for (const id of PLATFORM_IDS) provided.add(id)
   const issues: DependencyIssue[] = []
   for (const mod of mods) {

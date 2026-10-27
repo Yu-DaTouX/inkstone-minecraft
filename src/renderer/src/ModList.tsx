@@ -5,6 +5,7 @@ import { Button } from './ui/Button'
 import { Checkbox } from './ui/Checkbox'
 import { IconButton } from './ui/IconButton'
 import { Notice } from './ui/Notice'
+import { errorText } from '../../shared/errors.ts'
 import { ProgressBar } from './ui/Progress'
 import { SettingRow, SettingSection } from './ui/SettingRow'
 import { Switch } from './ui/Switch'
@@ -25,6 +26,7 @@ const FILTERS: Array<{ id: Filter; label: string }> = [
 ]
 
 const ISSUE_TONE: Record<string, 'stall' | 'fail' | 'ask'> = {
+  'dependency-version': 'stall',
   'missing-dependency': 'stall',
   'mc-mismatch': 'fail',
   'loader-mismatch': 'fail',
@@ -34,6 +36,7 @@ const ISSUE_TONE: Record<string, 'stall' | 'fail' | 'ask'> = {
 }
 
 const ISSUE_LABEL: Record<string, string> = {
+  'dependency-version': '前置版本不符',
   'missing-dependency': '缺依赖',
   'mc-mismatch': '版本不符',
   'loader-mismatch': '加载器不符',
@@ -43,8 +46,7 @@ const ISSUE_LABEL: Record<string, string> = {
 }
 
 export function cleanError(cause: unknown): string {
-  const message = cause instanceof Error ? cause.message : String(cause)
-  return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  return errorText(cause)
 }
 
 export function formatSize(bytes: number): string {
@@ -211,7 +213,7 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
     const ids = new Set<string>()
     for (const mod of data?.mods ?? []) {
       for (const issue of mod.issues) {
-        if (issue.kind === 'missing-dependency' && issue.modId) ids.add(issue.modId)
+        if ((issue.kind === 'missing-dependency' || issue.kind === 'dependency-version') && issue.modId) ids.add(issue.modId)
       }
     }
     return [...ids]

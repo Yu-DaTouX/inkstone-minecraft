@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { Popover } from './ui/Popover'
+import { ErrorNotice } from './ui/ErrorNotice'
 import { MeterRing, ProgressBar } from './ui/Progress'
 import { StatusDot } from './ui/StatusDot'
 import type { TaskInfo } from '../../shared/api.ts'
@@ -93,7 +94,7 @@ export function TaskIndicator(): ReactElement | null {
                       ) : null}
                     </div>
                     {active ? <ProgressBar aria-label={task.title} value={taskPercent(task) ?? 0} isIndeterminate={taskPercent(task) === null} tone="run" /> : null}
-                    {task.error ? <div className="task-row__error">{task.error}</div> : progressLabel ? <div className="task-row__detail">{progressLabel}{task.detail ? ` · ${task.detail}` : ''}</div> : task.detail ? <div className="task-row__detail">{task.detail}</div> : null}
+                    {task.error ? <ErrorNotice error={task.error} /> : progressLabel ? <div className="task-row__detail">{progressLabel}{task.detail ? ` · ${task.detail}` : ''}</div> : task.detail ? <div className="task-row__detail">{task.detail}</div> : null}
                   </li>
                 )
               })}

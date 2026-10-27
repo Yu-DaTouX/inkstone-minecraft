@@ -1648,6 +1648,14 @@
     }
   }
 }
+/* Performance uses the shared flat settings surface. */
+.performance-actions { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.performance-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); font-size: 13px; }
+.performance-apply { min-height: 66px; border-radius: 14px; }
+.error-details { margin-top: 8px; }
+.error-details summary { min-height: 36px; display: flex; align-items: center; cursor: pointer; }
+.error-details summary:focus-visible { outline: var(--ring-focus); }
+.error-details pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px var(--font-mono); }
 
 .microsoft-login { display: grid; gap: 8px; max-width: 360px; }
 .microsoft-login__code { display: grid; gap: 8px; font-size: 12px; overflow-wrap: anywhere; }

@@ -23,16 +23,60 @@ export function lineLevel(line: LogLine): 'error' | 'warn' | 'info' {
   return 'info'
 }
 
-export function useGameLogs(status: LaunchStatus | null): LogLine[] {
+export function useGameLogs(status: LaunchStatus | null, active = true): LogLine[] {
   const [logs, setLogs] = useState<LogLine[]>([])
+  const buffer = useRef<LogLine[]>([])
+  const dirty = useRef(false)
+  const reset = useRef<() => void>(() => {})
   useEffect(() => {
-    void window.craft.logs().then(setLogs)
-    return window.craft.onLog((line) => setLogs((current) => [...current.slice(-(KEEP_LINES - 1)), line]))
+    let alive = true
+    const pending: LogLine[] = []
+    let loading = true
+    let resetDuringLoad = false
+    reset.current = () => { buffer.current = []; pending.length = 0; resetDuringLoad = true; dirty.current = true }
+    const unsubscribe = window.craft.onLog((line) => {
+      if (loading) pending.push(line)
+      else {
+        buffer.current.push(line)
+        if (buffer.current.length > KEEP_LINES) buffer.current.splice(0, buffer.current.length - KEEP_LINES)
+        dirty.current = true
+      }
+    })
+    void window.craft.logs().then((initial) => {
+      if (!alive) return
+      const key = (line: LogLine): string => JSON.stringify([line.at, line.stream, line.text])
+      const counts = new Map<string, number>()
+      if (!resetDuringLoad) for (const line of initial) counts.set(key(line), (counts.get(key(line)) ?? 0) + 1)
+      const extra = pending.filter((line) => { const id = key(line); const count = counts.get(id) ?? 0; if (count) { counts.set(id, count - 1); return false } return true })
+      buffer.current = [...(resetDuringLoad ? [] : initial), ...extra].slice(-KEEP_LINES)
+      loading = false
+      dirty.current = true
+    }, () => { if (alive) { buffer.current = pending.slice(-KEEP_LINES); dirty.current = true; loading = false } })
+    return () => { alive = false; reset.current = () => {}; unsubscribe() }
   }, [])
   useEffect(() => {
-    if (status?.state === 'starting') setLogs([])
+    if (status?.state === 'starting') {
+      reset.current()
+    }
   }, [status?.state])
+  useEffect(() => {
+    if (!active) return
+    const flush = (): void => {
+      if (!dirty.current) return
+      dirty.current = false
+      setLogs([...buffer.current])
+    }
+    dirty.current = true
+    flush()
+    const timer = setInterval(flush, 200)
+    return () => clearInterval(timer)
+  }, [active])
   return logs
+}
+
+export function GameLogSheet({ status, ...props }: Omit<Props, 'logs'> & { status: LaunchStatus | null }): ReactElement {
+  const logs = useGameLogs(status, props.open)
+  return <LogSheet {...props} logs={logs} />
 }
 
 interface Props {

@@ -1,6 +1,6 @@
 export type ModMetaKind = 'fabric' | 'quilt' | 'forge' | 'neoforge' | 'legacy'
 
-export type ModIssueKind = 'missing-dependency' | 'incompatible' | 'mc-mismatch' | 'loader-mismatch' | 'duplicate' | 'no-metadata' | 'update'
+export type ModIssueKind = 'missing-dependency' | 'dependency-version' | 'incompatible' | 'mc-mismatch' | 'loader-mismatch' | 'duplicate' | 'no-metadata' | 'update'
 
 export interface ModIssue {
   kind: ModIssueKind

@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { ChevronDown, ChevronUp, FileWarning, X } from 'lucide-react'
 import { Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { Badge } from './ui/Badge'
@@ -24,6 +24,7 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export function CrashDialog({ diagnosis, busy, result, onClose, onAction }: Props): ReactElement {
   const [expanded, setExpanded] = useState(false)
+  useEffect(() => setExpanded(false), [diagnosis?.id])
   return (
     <ModalOverlay className="ui-modal-overlay" isOpen={!!diagnosis} isDismissable onOpenChange={(next) => !next && onClose()}>
       <Modal className="ui-modal" data-dialog-size="md">
@@ -31,36 +32,32 @@ export function CrashDialog({ diagnosis, busy, result, onClose, onAction }: Prop
           <div className="ui-dialog__head">
             <Heading slot="title" className="ui-dialog__title">
               <span className="crash-dialog__glyph" aria-hidden="true">
-                <FileWarning size={16} />
+                <FileWarning size={20} />
               </span>
-              游戏崩了
+              {diagnosis?.rule?.title ?? '游戏未能正常运行'}
             </Heading>
             <IconButton aria-label="关闭" size="sm" onPress={onClose}>
-              <X size={16} />
+              <X size={18} />
             </IconButton>
           </div>
           {diagnosis ? (
             <div className="ui-dialog__body crash-dialog__body">
-              <p className="crash-dialog__conclusion">{diagnosis.rule ? diagnosis.rule.explanation : '没认出原因，下面是堆栈关键词和收集到的日志。'}</p>
+              <p className="crash-dialog__conclusion">{diagnosis.rule ? diagnosis.rule.explanation : '还无法确定原因。可以先检查最近添加或更新的 Mod，或导出诊断包供进一步分析。'}</p>
               <div className="crash-dialog__tags">
-                {diagnosis.rule ? <Badge tone={diagnosis.rule.confidence === 'high' ? 'fail' : 'stall'}>置信度 {diagnosis.rule.confidence === 'high' ? '高' : '中'}</Badge> : null}
+                {diagnosis.rule ? <Badge tone="stall">{diagnosis.rule.confidence === 'high' ? '匹配到已知错误特征' : '可能原因，需进一步确认'}</Badge> : null}
                 <Badge>{diagnosis.versionId}</Badge>
                 {diagnosis.exitCode !== null ? <Badge>退出码 {diagnosis.exitCode}</Badge> : null}
                 {!diagnosis.windowShown ? <Badge tone="stall">窗口没出现</Badge> : null}
               </div>
 
-              {diagnosis.evidence.length > 0 ? (
+              <Button variant="ghost" icon={expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />} aria-expanded={expanded} onPress={() => setExpanded((value) => !value)}>{expanded ? '收起技术细节' : '查看日志证据和相关 Mod'}</Button>
+              {expanded && diagnosis.evidence.length > 0 ? (
                 <section className="crash-dialog__section">
                   <div className="crash-dialog__section-head">
                     <span className="crash-dialog__label">证据</span>
-                    {diagnosis.evidence.length > 5 ? (
-                      <Button variant="ghost" size="sm" icon={expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />} onPress={() => setExpanded((value) => !value)}>
-                        {expanded ? '收起' : `展开 ${diagnosis.evidence.length} 行`}
-                      </Button>
-                    ) : null}
                   </div>
                   <div className="crash-evidence" role="log" tabIndex={0}>
-                    {(expanded ? diagnosis.evidence : diagnosis.evidence.slice(0, 5)).map((line, index) => (
+                    {diagnosis.evidence.map((line, index) => (
                       <div key={`${line.source}-${index}`} className="crash-evidence__line">
                         <span className="crash-evidence__source">{SOURCE_LABEL[line.source] ?? line.source}</span>
                         <span className="crash-evidence__text">{line.text}</span>
@@ -70,9 +67,9 @@ export function CrashDialog({ diagnosis, busy, result, onClose, onAction }: Prop
                 </section>
               ) : null}
 
-              {diagnosis.suspects.length > 0 ? (
+              {expanded && diagnosis.suspects.length > 0 ? (
                 <section className="crash-dialog__section">
-                  <span className="crash-dialog__label">嫌疑 Mod</span>
+                  <span className="crash-dialog__label">日志中相关的 Mod（仍需验证）</span>
                   <ul className="crash-suspects">
                     {diagnosis.suspects.map((suspect) => (
                       <li key={suspect.fileName} className="crash-suspect">
@@ -85,7 +82,7 @@ export function CrashDialog({ diagnosis, busy, result, onClose, onAction }: Prop
                 </section>
               ) : null}
 
-              {diagnosis.keywords.length > 0 ? (
+              {expanded && diagnosis.keywords.length > 0 ? (
                 <section className="crash-dialog__section">
                   <span className="crash-dialog__label">堆栈关键词</span>
                   <div className="crash-dialog__keywords">
@@ -111,8 +108,9 @@ export function CrashDialog({ diagnosis, busy, result, onClose, onAction }: Prop
                 {diagnosis.actions.map((action, index) => (
                   <Button
                     key={`${action.kind}-${index}`}
-                    variant={index === 0 && action.kind !== 'export' ? 'primary' : 'ghost'}
-                    size="sm"
+                    variant={index === 0 && action.kind !== 'export' ? 'secondary' : 'ghost'}
+                    className={index === 0 && action.kind !== 'export' ? 'fix-button' : undefined}
+                    title={action.hint ?? undefined}
                     isDisabled={busy !== null}
                     onPress={() => onAction(action)}
                   >

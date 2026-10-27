@@ -251,6 +251,7 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
   })
   const gesture = useRef<{ id: number; x: number; lastX: number; lastAt: number; velocity: number } | null>(null)
   const skinVersion = useSkinVersion(account.id)
+  const redraw = useRef<() => void>(() => {})
 
   live.current.direction = direction
 
@@ -262,6 +263,7 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
       const state = live.current
       const previous = state.model
       state.model = next
+      redraw.current()
       if (!previous || previous === next || state.reduced) return
       state.swap = { start: performance.now(), dir: state.direction, old: previous, boom: null, rebuild: null, landed: false }
     })
@@ -274,9 +276,11 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
   useEffect(() => {
     const onMove = (event: globalThis.PointerEvent): void => {
       live.current.mouse = { x: event.clientX, y: event.clientY }
+      redraw.current()
     }
     const onLeave = (): void => {
       live.current.mouse = null
+      redraw.current()
     }
     window.addEventListener('pointermove', onMove)
     document.documentElement.addEventListener('pointerleave', onLeave)
@@ -305,11 +309,18 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
     let fxDirty = false
     let raf = 0
     let last = performance.now()
+    let drawnAt = -Infinity
+    let staticKey = ''
+    let drawnModel: Model | null = null
+    let frame: (now: number) => void = () => {}
+    const wake = (): void => { if (!raf) raf = requestAnimationFrame((now) => frame(now)) }
+    redraw.current = wake
 
     const resizeFx = (): void => {
       const ratio = window.devicePixelRatio || 1
       fxElement.width = Math.max(1, Math.round(fxElement.clientWidth * ratio))
       fxElement.height = Math.max(1, Math.round(fxElement.clientHeight * ratio))
+      wake()
     }
     const fxObserver = new ResizeObserver(resizeFx)
     fxObserver.observe(fxElement)
@@ -325,23 +336,39 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
           target.height = height
         }
       }
+      wake()
     }
     const observer = new ResizeObserver(resize)
     observer.observe(element)
     resize()
 
-    const frame = (now: number): void => {
-      raf = requestAnimationFrame(frame)
+    frame = (now: number): void => {
+      raf = 0
       const state = live.current
+      const run = element.closest('.shell')?.getAttribute('data-run') ?? 'idle'
+      if (run !== state.run) { state.run = run; state.runSince = now }
+      const background = document.hidden || !document.hasFocus() || (run === 'running' && now - state.runSince >= WAVE_MS)
+      const reduced = prefersReducedMotion()
+      state.reduced = reduced
+      if (background) state.swap = null
+      if ((!background && !reduced) || state.swap) raf = requestAnimationFrame(frame)
+      const key = `${element.width}|${element.height}|${document.documentElement.dataset.theme}|${matchMedia('(prefers-color-scheme: dark)').matches}|${!!state.model}|${reduced}|${background}|${state.drag}`
+      // Preserve full-rate interaction/switch effects; idle motion only needs
+      // 30 fps. A hidden/running-game/reduced-motion avatar needs one still.
+      if ((background || reduced) && key === staticKey && state.model === drawnModel && !state.swap) return
+      if (!background && !reduced && !state.swap && !gesture.current && now - drawnAt < 1000 / 30) return
+      drawnAt = now
+      staticKey = key
+      drawnModel = state.model
       const dt = Math.min(now - last, 64)
       last = now
       const ratio = window.devicePixelRatio || 1
-      const idle = !state.reduced
+      const idle = !state.reduced && !background
 
       // 头看向鼠标；鼠标不在窗口里就慢慢左右看看
       let targetHeadYaw = idle ? Math.sin(now / 2600) * 14 * DEG : 0
       let targetHeadPitch = idle ? Math.sin(now / 3700) * 4 * DEG : 0
-      if (state.mouse) {
+      if (state.mouse && idle) {
         const rect = element.getBoundingClientRect()
         const headX = rect.left + rect.width / 2
         const headY = rect.top + rect.height * 0.32
@@ -359,11 +386,6 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
 
       const pose = poseFor(element, state.yaw + state.drag, state.headYaw, state.headPitch, idle ? now : 0)
       // 启动游戏：原地蹦着、两手前后甩，像在跑；进程起来后挥挥手
-      const run = element.closest('.shell')?.getAttribute('data-run') ?? 'idle'
-      if (run !== state.run) {
-        state.run = run
-        state.runSince = now
-      }
       const since = now - state.runSince
       if (idle && run === 'starting') {
         const phase = (since / HOP_MS) * Math.PI * 2
@@ -554,9 +576,25 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
 
       if (swap.landed && now >= boom.end) state.swap = null
     }
-    raf = requestAnimationFrame(frame)
+    const mutations = new MutationObserver(() => { staticKey = ''; wake() })
+    mutations.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    const shell = element.closest('.shell')
+    if (shell) mutations.observe(shell, { attributes: true, attributeFilter: ['data-run'] })
+    const media = [matchMedia('(prefers-reduced-motion: reduce)'), matchMedia('(prefers-color-scheme: dark)')]
+    const resume = (): void => { staticKey = ''; last = performance.now(); wake() }
+    for (const query of media) query.addEventListener('change', resume)
+    window.addEventListener('focus', resume)
+    window.addEventListener('blur', resume)
+    document.addEventListener('visibilitychange', resume)
+    wake()
     return () => {
       cancelAnimationFrame(raf)
+      redraw.current = () => {}
+      mutations.disconnect()
+      for (const query of media) query.removeEventListener('change', resume)
+      window.removeEventListener('focus', resume)
+      window.removeEventListener('blur', resume)
+      document.removeEventListener('visibilitychange', resume)
       observer.disconnect()
       fxObserver.disconnect()
       gl?.dispose()
@@ -579,11 +617,14 @@ export function AvatarStage({ account, direction, onSwipe }: Props): ReactElemen
     // 拖动直接转身，越转越沉
     const dx = event.clientX - active.x
     live.current.drag = (dx / (1 + Math.abs(dx) / 240)) * 0.9 * DEG
+    redraw.current()
   }
 
   const onPointerUp = (event: PointerEvent<HTMLCanvasElement>): void => {
     const active = gesture.current
     gesture.current = null
+    if (prefersReducedMotion()) live.current.drag = 0
+    redraw.current()
     if (!active || active.id !== event.pointerId) return
     const dx = event.clientX - active.x
     if (Math.abs(dx) > SWIPE_PX || Math.abs(active.velocity) > SWIPE_VELOCITY) onSwipe(dx < 0 ? 1 : -1)

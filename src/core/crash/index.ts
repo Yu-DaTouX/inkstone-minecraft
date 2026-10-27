@@ -20,6 +20,7 @@ export interface CrashRunOptions {
   gameDir: string
   javaPath: string | null
   maxMemoryMb: number
+  memoryControlledByJvm?: boolean
 }
 
 export interface CrashRunContext {
@@ -70,8 +71,8 @@ export function summaryText(diagnosis: CrashDiagnosis, bundle: CrashBundle): str
     `退出码：${diagnosis.exitCode ?? 'null'}`,
     `游戏窗口出现：${diagnosis.windowShown ? '是' : '否'}`,
     '',
-    diagnosis.rule ? `结论：${diagnosis.rule.explanation}` : '结论：没认出原因，下面是堆栈关键词。',
-    diagnosis.rule ? `规则：${diagnosis.rule.id}（置信度 ${diagnosis.rule.confidence === 'high' ? '高' : '中'}）` : null,
+    diagnosis.rule ? `结论：${diagnosis.rule.explanation}` : '结论：还无法确定原因，以下日志与关键词可供进一步分析。',
+    diagnosis.rule ? `规则：${diagnosis.rule.id}（${diagnosis.rule.confidence === 'high' ? '匹配到已知错误特征' : '可能原因，需进一步确认'}）` : null,
     diagnosis.note ? `触发原因：${diagnosis.note}` : null,
     '',
     '证据：',
@@ -215,6 +216,7 @@ export class CrashCenter {
           javaPath: context.options.javaPath,
           requiredMajor: null,
           maxMemoryMb: context.options.maxMemoryMb,
+          memoryControlledByJvm: context.options.memoryControlledByJvm,
           totalMemMb: Math.round(totalmem() / 1024 / 1024)
         })
     await mkdir(join(recordDir, 'crash-reports'), { recursive: true })

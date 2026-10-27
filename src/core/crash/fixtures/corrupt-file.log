@@ -1,0 +1,6 @@
+[13:03:43] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.10
+[13:03:44] [main/ERROR]: Failed to load mod file mods/create-0.5.1.jar
+java.util.zip.ZipException: invalid LOC header (bad signature)
+	at java.base/java.util.zip.ZipFile$Source.get(ZipFile.java:1425)
+	at java.base/java.util.zip.ZipFile.<init>(ZipFile.java:220)
+	at net.fabricmc.loader.impl.util.SystemProperties.lambda$static$0(SystemProperties.java:52)

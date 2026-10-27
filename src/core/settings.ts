@@ -24,7 +24,7 @@ export const DEFAULT_SETTINGS: LauncherSettings = {
   downloadConcurrency: 16,
   theme: 'system',
   closeToTray: true,
-  cleanMemoryOnLaunch: true
+  cleanMemoryOnLaunch: false
 }
 
 const DOWNLOAD_SOURCES: readonly DownloadSource[] = ['auto', 'official', 'bmclapi']
@@ -72,7 +72,7 @@ export function normalizeSettings(raw: unknown): LauncherSettings {
     downloadConcurrency: Number.isInteger(concurrency) && concurrency >= 4 && concurrency <= 64 ? concurrency : DEFAULT_SETTINGS.downloadConcurrency,
     theme: THEMES.includes(value.theme as ThemePreference) ? (value.theme as ThemePreference) : DEFAULT_SETTINGS.theme,
     closeToTray: typeof value.closeToTray === 'boolean' ? value.closeToTray : DEFAULT_SETTINGS.closeToTray,
-    cleanMemoryOnLaunch: typeof value.cleanMemoryOnLaunch === 'boolean' ? value.cleanMemoryOnLaunch : DEFAULT_SETTINGS.cleanMemoryOnLaunch
+    cleanMemoryOnLaunch: false
   }
 }
 

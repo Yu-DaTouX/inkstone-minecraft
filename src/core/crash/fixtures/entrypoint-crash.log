@@ -1,0 +1,11 @@
+[21:27:47] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.20.1
+[21:27:50] [Render thread/INFO]: Setting user: Steve
+[21:27:50] [main/ERROR]: Minecraft crash report written
+java.lang.RuntimeException: Could not execute entrypoint stage 'main' due to errors, provided by 'inkstone-fixture' at 'inkstone.fixture.Boom'!
+	at net.fabricmc.loader.impl.FabricLoaderImpl.lambda$invokeEntrypoints$0(FabricLoaderImpl.java:418)
+	at net.fabricmc.loader.impl.util.ExceptionUtil.gatherExceptions(ExceptionUtil.java:33)
+	at net.fabricmc.loader.impl.FabricLoaderImpl.invokeEntrypoints(FabricLoaderImpl.java:416)
+Caused by: net.fabricmc.loader.api.EntrypointException: Exception while loading entries for entrypoint 'main' provided by 'inkstone-fixture'
+	at net.fabricmc.loader.impl.entrypoint.EntrypointContainerImpl.getEntrypoint(EntrypointContainerImpl.java:56)
+Caused by: net.fabricmc.loader.api.LanguageAdapterException: java.lang.ClassNotFoundException: inkstone.fixture.Boom
+	at net.fabricmc.loader.impl.entrypoint.EntrypointStorage$NewEntry.getOrCreate(EntrypointStorage.java:124)

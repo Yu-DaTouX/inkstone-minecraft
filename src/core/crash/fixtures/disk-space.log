@@ -1,0 +1,2 @@
+java.nio.file.FileSystemException: saves/test/region/r.0.0.mca: No space left on device
+	at java.base/sun.nio.fs.WindowsException.translateToIOException(WindowsException.java:92)

@@ -1,4 +1,7 @@
 export const CRAFT_CHANNELS = {
+  performance: 'craft:performance:preview',
+  applyPerformance: 'craft:performance:apply',
+  restorePerformance: 'craft:performance:restore',
   settings: 'craft:settings',
   updateSettings: 'craft:update-settings',
   instances: 'craft:instances',

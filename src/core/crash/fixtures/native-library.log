@@ -1,0 +1,5 @@
+[08:22:18] [main/INFO]: Backend library: LWJGL version 3.3.3+5
+[08:22:19] [main/ERROR]: Failed to initialize LWJGL
+java.lang.UnsatisfiedLinkError: Failed to locate library: lwjgl.dll
+	at org.lwjgl.system.Library.loadNative(Library.java:377)
+	at org.lwjgl.glfw.GLFW.<clinit>(GLFW.java:790)

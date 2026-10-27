@@ -10,6 +10,9 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): () => vo
 }
 
 const api: CraftApi = {
+  performance: (folder, versionId) => ipcRenderer.invoke(CRAFT_CHANNELS.performance, folder, versionId),
+  applyPerformance: (folder, versionId) => ipcRenderer.invoke(CRAFT_CHANNELS.applyPerformance, folder, versionId),
+  restorePerformance: (folder, versionId) => ipcRenderer.invoke(CRAFT_CHANNELS.restorePerformance, folder, versionId),
   settings: () => ipcRenderer.invoke(CRAFT_CHANNELS.settings),
   updateSettings: (patch) => ipcRenderer.invoke(CRAFT_CHANNELS.updateSettings, patch),
   instances: (folder) => ipcRenderer.invoke(CRAFT_CHANNELS.instances, folder),
@@ -53,7 +56,7 @@ const api: CraftApi = {
   stop: () => ipcRenderer.invoke(CRAFT_CHANNELS.stop),
   status: () => ipcRenderer.invoke(CRAFT_CHANNELS.status),
   logs: () => ipcRenderer.invoke(CRAFT_CHANNELS.logs),
-  onLog: (listener) => subscribe<LogLine>(CRAFT_CHANNELS.logEvent, listener),
+  onLog: (listener) => subscribe<LogLine | LogLine[]>(CRAFT_CHANNELS.logEvent, (payload) => Array.isArray(payload) ? payload.forEach(listener) : listener(payload)),
   onStatus: (listener) => subscribe<LaunchStatus>(CRAFT_CHANNELS.statusEvent, listener),
   preflight: (request) => ipcRenderer.invoke(CRAFT_CHANNELS.preflight, request),
   launchJava: (folder, versionId, javaPath) => ipcRenderer.invoke(CRAFT_CHANNELS.launchJava, folder, versionId, javaPath),

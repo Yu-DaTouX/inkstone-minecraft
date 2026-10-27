@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createMinecraftProcessWatcher, generateArguments, launch, Version, type LaunchOption, type ResolvedVersion } from '@xmcl/core'
 import { offline } from '@xmcl/user'
 import type { MinecraftSession } from './microsoft.ts'
+import { buildJvmPlan } from './jvm.ts'
 import type { LogLine } from '../shared/api.ts'
 import type { LaunchStep, LaunchStepId, LaunchStepProgress } from '../shared/launch-api.ts'
 
@@ -15,9 +16,11 @@ export interface OfflineLaunchOptions {
   versionId: string
   username: string
   javaPath: string
+  javaMajor?: number | null
   gameDir: string
   maxMemoryMb: number
   nativeRoot: string
+  signal?: AbortSignal
   extraJVMArgs?: string[]
   jvmArgs?: string
   gameArgs?: string
@@ -87,7 +90,9 @@ export function useOwnVersionJar(folder: string, resolved: ResolvedVersion): Res
 
 async function buildLaunchOption(options: OfflineLaunchOptions, version: ResolvedVersion, username: string): Promise<LaunchOption> {
   const auth = offline(username)
-  const extraJVMArgs = [...splitArgs(options.jvmArgs), ...(options.extraJVMArgs ?? [])]
+  const plan = buildJvmPlan(options.javaMajor ?? version.javaVersion?.majorVersion ?? null, options.maxMemoryMb, [...splitArgs(options.jvmArgs), ...(options.extraJVMArgs ?? [])])
+  const blocked = plan.issues.filter((issue) => issue.level === 'block')
+  if (blocked.length) throw new Error(blocked.map((issue) => issue.message).join('；'))
   const extraMCArgs = splitArgs(options.gameArgs)
   const resolution =
     options.resolution && (options.resolution.width || options.resolution.height || options.resolution.fullscreen)
@@ -109,13 +114,13 @@ async function buildLaunchOption(options: OfflineLaunchOptions, version: Resolve
     ...(options.session ? { features: { microsoft: { auth_xuid: options.session.xuid, clientid: options.session.clientId } } } : {}),
     launcherName: LAUNCHER_NAME,
     launcherBrand: LAUNCHER_NAME,
-    maxMemory: options.maxMemoryMb,
+    maxMemory: plan.customMemory ? undefined : options.maxMemoryMb,
     nativeRoot: join(options.nativeRoot, options.versionId),
-    extraJVMArgs: extraJVMArgs.length > 0 ? extraJVMArgs : undefined,
+    extraJVMArgs: plan.args,
     extraMCArgs: extraMCArgs.length > 0 ? extraMCArgs : undefined,
     resolution,
     // detached：不进启动器的 Job，关掉启动器游戏照常运行
-    extraExecOption: { windowsHide: false, detached: true }
+    extraExecOption: { windowsHide: false, detached: true, signal: options.signal }
   }
 }
 
@@ -126,10 +131,12 @@ export async function describeLaunchCommand(options: OfflineLaunchOptions): Prom
 }
 
 export async function launchOffline(options: OfflineLaunchOptions, events: LaunchEvents): Promise<ChildProcess> {
+  options.signal?.throwIfAborted()
   const nativeRoot = join(options.nativeRoot, options.versionId)
   await mkdir(nativeRoot, { recursive: true })
   await mkdir(options.gameDir, { recursive: true })
   const version = useOwnVersionJar(options.folder, await Version.parse(options.folder, options.versionId))
+  options.signal?.throwIfAborted()
   const child = await launch(await buildLaunchOption(options, version, options.username))
   const pipe = (stream: 'out' | 'err') => (chunk: Buffer | string) => {
     for (const text of chunk.toString().split(/\r?\n/)) {
@@ -139,7 +146,12 @@ export async function launchOffline(options: OfflineLaunchOptions, events: Launc
   child.stdout?.on('data', pipe('out'))
   child.stderr?.on('data', pipe('err'))
   const watcher = createMinecraftProcessWatcher(child)
-  watcher.on('error', (error: unknown) => events.error(error instanceof Error ? error.message : String(error)))
+  watcher.on('error', (error: unknown) => {
+    // AbortSignal kills a spawned child asynchronously. Wait for its exit before
+    // reporting stopped, so a new launch cannot overlap the old process.
+    if (options.signal?.aborted && child.pid) return
+    events.error(error instanceof Error ? error.message : String(error))
+  })
   watcher.on('minecraft-window-ready', () => events.windowReady())
   watcher.on('minecraft-exit', ({ code, crashReport }) => events.exit(code ?? null, crashReport || null))
   return child

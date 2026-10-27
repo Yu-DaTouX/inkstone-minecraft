@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { rename, readFile } from 'node:fs/promises'
-import { homedir, totalmem } from 'node:os'
+import { freemem, homedir, totalmem } from 'node:os'
 import { join } from 'node:path'
 import type { Account, FolderTarget, InstallKind, InstallRequest, InstanceInfo, JavaEntry, LauncherSettings, LaunchRequest, LaunchStatus, LoaderVersions, LogLine, MinecraftVersionList, PclSnapshot, SkinInfo, TaskProgress } from '../shared/api.ts'
 import type { CrashActionRequest, CrashActionResult, CrashDiagnosis, CrashExportResult, CrashRecordSummary } from '../shared/crash-api.ts'
@@ -36,8 +36,7 @@ import { applicableRules } from './crash/rules.ts'
 import { TaskCenter } from './tasks.ts'
 import { listInstances, readInstance } from './instances.ts'
 import { detectJava, pickJava } from './java.ts'
-import { trimMemory } from './memory.ts'
-import { describeLaunchCommand, initialLaunchSteps, launchOffline, updateLaunchStep } from './launch.ts'
+import { describeLaunchCommand, initialLaunchSteps, launchOffline, splitArgs, updateLaunchStep } from './launch.ts'
 import { normalizeFolder, readPclSnapshot, readPclVersionSetup } from './pcl-import.ts'
 import { dataDir, SettingsStore } from './settings.ts'
 import { SkinCache } from './skins.ts'
@@ -46,6 +45,9 @@ import { cleanupCancelledInstall } from './install/cleanup.ts'
 import { defaultModpackName, importModpack as importModpackFile, inspectModpack, sanitizeVersionName } from './install/mrpack.ts'
 import { installTypeOf, projectTypeOf } from './download/community.ts'
 import type { TaskHandle } from './tasks.ts'
+import { PerformanceStore, recommendedMemory } from './performance.ts'
+import type { PerformanceReport, PerformanceResult } from '../shared/performance-api.ts'
+import { buildJvmPlan } from './jvm.ts'
 
 const LOG_LIMIT = 2000
 const LIST_CACHE_MS = 10 * 60 * 1000
@@ -87,6 +89,7 @@ export class CraftService extends EventEmitter {
   private readonly skins: SkinCache
   readonly mods: ModsManager
   readonly instanceSettings: InstanceSettingsStore
+  private readonly performanceStore: PerformanceStore
   private readonly icons = new InstanceIconCache()
   private readonly customIcons: InstanceIconStore
   readonly tasks = new TaskCenter()
@@ -95,6 +98,8 @@ export class CraftService extends EventEmitter {
   private versionCache: { at: number; value: MinecraftVersionList } | null = null
   private readonly loaderCache = new Map<string, { at: number; value: LoaderVersions }>()
   private child: ChildProcess | null = null
+  private activeGameDir: string | null = null
+  private launchTarget: string | null = null
   private current: LaunchStatus = { ...IDLE }
   private readonly logLines: LogLine[] = []
   private readonly crash: CrashCenter
@@ -112,6 +117,7 @@ export class CraftService extends EventEmitter {
     this.skins = new SkinCache(join(this.dataDir, 'skins'))
     this.mods = new ModsManager({ dataDir: this.dataDir })
     this.instanceSettings = new InstanceSettingsStore(join(this.dataDir, 'instances.json'))
+    this.performanceStore = new PerformanceStore(join(this.dataDir, 'performance'))
     this.crash = new CrashCenter(join(this.dataDir, 'crash'))
     this.customIcons = new InstanceIconStore(this.dataDir)
   }
@@ -136,6 +142,51 @@ export class CraftService extends EventEmitter {
   }
 
   microsoftCancel(id?: string): void { this.microsoft?.cancel(id) }
+
+  async performance(folder: string, versionId: string): Promise<PerformanceReport> {
+    const ctx = await this.instanceContext(folder, versionId)
+    const [overview, backup] = await Promise.all([this.instanceOverview(ctx.folder, versionId), this.performanceStore.backup(`${ctx.folder}|${versionId}`)])
+    const totalMemoryMb = Math.round(totalmem() / 1048576)
+    const freeMemoryMb = Math.round(freemem() / 1048576)
+    const javas = await this.javas()
+    const java = overview.effective.javaPath ? javas.find((item) => item.path.toLowerCase() === overview.effective.javaPath!.toLowerCase()) : pickJava(javas, overview.javaMajor)
+    const plan = buildJvmPlan(java?.majorVersion ?? overview.javaMajor, overview.effective.maxMemoryMb, splitArgs(overview.effective.jvmArgs))
+    return {
+      totalMemoryMb, freeMemoryMb, currentMemoryMb: plan.maxMemoryMb,
+      recommendedMemoryMb: recommendedMemory(totalMemoryMb, freeMemoryMb, overview.modCount),
+      canRestore: !!backup, sharedDirectory: !overview.isolated,
+      note: '根据本机可用内存和 Mod 数量给出起点建议；不自动修改配置，应用后只对这个版本生效。',
+      automaticJvmArgs: plan.automatic, customJvmArgs: overview.effective.jvmArgs,
+      jvmDescription: java ? `按 Java ${java.majorVersion} 选择保守默认值，用户指定的回收器和内存参数优先。` : '尚未找到合适的 Java，选择后再检查参数。',
+      jvmIssues: plan.issues, memoryControlledByJvm: plan.customMemory
+    }
+  }
+
+  private async writablePerformanceContext(folder: string, versionId: string): Promise<InstanceContext> {
+    const ctx = await this.instanceContext(folder, versionId)
+    if (this.current.state === 'running' || this.current.state === 'starting') throw new Error('先停止游戏，再调整性能设置')
+    return ctx
+  }
+
+  async applyPerformance(folder: string, versionId: string): Promise<PerformanceResult> {
+    const ctx = await this.writablePerformanceContext(folder, versionId)
+    const report = await this.performance(ctx.folder, versionId)
+    if (report.memoryControlledByJvm) throw new Error('自定义 JVM 参数已指定最大内存，请在版本设置中调整对应参数')
+    const override = await this.instanceSettings.get(ctx.folder, versionId)
+    await this.performanceStore.apply(`${ctx.folder}|${versionId}`, report.recommendedMemoryMb, override.maxMemoryMb,
+      (value) => this.instanceSettings.patch(ctx.folder, versionId, { maxMemoryMb: value }))
+    this.emit('instances-changed', ctx.folder)
+    return { message: '这个版本的内存建议已保存，下次启动生效。可以在这里恢复。', report: await this.performance(ctx.folder, versionId) }
+  }
+
+  async restorePerformance(folder: string, versionId: string): Promise<PerformanceResult> {
+    const ctx = await this.writablePerformanceContext(folder, versionId)
+    const override = await this.instanceSettings.get(ctx.folder, versionId)
+    const retained = await this.performanceStore.restore(`${ctx.folder}|${versionId}`, override.maxMemoryMb,
+      (value) => this.instanceSettings.patch(ctx.folder, versionId, { maxMemoryMb: value }))
+    this.emit('instances-changed', ctx.folder)
+    return { message: retained ? '已结束这次调整，保留后来手动修改的内存值。' : '已恢复调整前的内存设置。', report: await this.performance(ctx.folder, versionId) }
+  }
 
   async updateSettings(patch: Partial<LauncherSettings>): Promise<LauncherSettings> {
     if (patch.extraJavaPaths) this.javaCache = null
@@ -473,16 +524,10 @@ export class CraftService extends EventEmitter {
   }
 
   async launch(request: LaunchRequest): Promise<LaunchStatus> {
-    if (this.child && this.current.state === 'running') throw new Error('已有游戏在运行，先停止它')
-    const settings = await this.store.load()
-    const folder = normalizeFolder(request.folder)
-    const instance = await readInstance(folder, request.versionId)
-    if (instance.error && !instance.minecraftVersion) throw new Error(`版本无法启动：${instance.error}`)
-    const override = await this.instanceSettings.get(folder, request.versionId)
-    const pcl = await readPclVersionSetup(folder, request.versionId)
-    const javas = await this.javas()
-    const effective = await this.effectiveLaunchSettings(settings, instance, override, pcl, javas)
+    if (this.current.state === 'running' || this.current.state === 'starting') throw new Error('已有游戏正在启动或运行，先停止它')
+    if (this.tasks.busyFor(`${normalizeFolder(request.folder)}|${request.versionId}`)) throw new Error('这个版本正在安装、更新或修复，请等任务结束后再启动')
     const abort = new AbortController()
+    this.launchTarget = `${normalizeFolder(request.folder)}|${request.versionId}`.toLowerCase()
     this.launchAbort = abort
     this.runLines = []
     this.logLines.length = 0
@@ -490,9 +535,20 @@ export class CraftService extends EventEmitter {
     this.setStatus({ ...IDLE, state: 'starting', versionId: request.versionId, steps: this.steps })
     let windowShown = false
     let finished = false
-    // 和检查、补文件并行跑，真正拉起进程前最多等它一会儿
-    const trimming = settings.cleanMemoryOnLaunch ? trimMemory() : null
+    let fatalScheduled = false
+    let startupFailure: string | null = null
     try {
+      const settings = await this.store.load()
+      const folder = normalizeFolder(request.folder)
+      const instance = await readInstance(folder, request.versionId)
+      this.activeGameDir = request.gameDir ?? instance.gameDir
+      if (this.tasks.busyForResource(this.activeGameDir)) throw new Error('这个游戏目录正在修改 Mod，请等文件操作结束后再启动')
+      if (instance.error && !instance.minecraftVersion) throw new Error(`版本无法启动：${instance.error}`)
+      const override = await this.instanceSettings.get(folder, request.versionId)
+      const pcl = await readPclVersionSetup(folder, request.versionId)
+      const javas = await this.javas()
+      const effective = await this.effectiveLaunchSettings(settings, instance, request.javaPath ? { ...override, javaPath: request.javaPath } : override, pcl, javas)
+      abort.signal.throwIfAborted()
       this.markStep('account', { state: 'running', detail: '检查登录状态' })
       const selectedAccount = settings.accounts.find((item) => item.id === (request.accountId ?? settings.selectedAccountId))
       let session: MinecraftSession | undefined
@@ -506,7 +562,8 @@ export class CraftService extends EventEmitter {
       if (!javaPath) throw new Error(`没有找到 Java ${instance.javaMajor ?? ''}，请在设置里添加`)
       this.markStep('java', { state: 'done', detail: javaPath })
       const gameDir = request.gameDir ?? instance.gameDir
-      const maxMemoryMb = request.maxMemoryMb ?? effective.maxMemoryMb
+      this.activeGameDir = gameDir
+      const maxMemoryMb = buildJvmPlan(effective.javaMajor, request.maxMemoryMb ?? effective.maxMemoryMb, splitArgs(effective.jvmArgs)).maxMemoryMb
       this.setStatus({ effective })
       this.note(`启动 ${request.versionId}（${instance.loader}${instance.loaderVersion ? ` ${instance.loaderVersion}` : ''}，MC ${instance.minecraftVersion ?? '?'}）`)
       this.note(`Java：${javaPath}（${SETTING_SOURCE_LABEL[request.javaPath ? 'global' : effective.javaSource]}）`)
@@ -520,10 +577,12 @@ export class CraftService extends EventEmitter {
         instance,
         javas,
         javaPath,
+        jvmArgs: splitArgs(effective.jvmArgs),
         accountName: username,
         maxMemoryMb,
         totalMemMb: Math.round(totalmem() / 1024 / 1024),
         modsDir: join(gameDir, 'mods'),
+        modEntries: (await this.mods.list({ folder, versionId: request.versionId, gameDir, loader: instance.loader, minecraftVersion: instance.minecraftVersion })).mods,
         missingFiles: null
       })
       const blockers = report.items.filter((item) => item.level === 'block')
@@ -537,14 +596,16 @@ export class CraftService extends EventEmitter {
         abort.signal
       )
       this.markStep('files', { state: 'done', detail: '文件完整' })
-      const context = await this.crash.begin({ folder, versionId: request.versionId, loader: instance.loader, gameDir, javaPath, maxMemoryMb })
+      const context = await this.crash.begin({ folder, versionId: request.versionId, loader: instance.loader, gameDir, javaPath, maxMemoryMb, memoryControlledByJvm: buildJvmPlan(effective.javaMajor, maxMemoryMb, splitArgs(effective.jvmArgs)).customMemory })
       const autoServer = override.autoEnter === false ? null : resolveSettings(override, pcl, settings).effective.server
       const launchOptions = {
         session,
+        signal: abort.signal,
         folder,
         versionId: request.versionId,
         username,
         javaPath,
+        javaMajor: effective.javaMajor,
         gameDir,
         maxMemoryMb,
         nativeRoot: join(this.dataDir, 'natives'),
@@ -553,11 +614,7 @@ export class CraftService extends EventEmitter {
         resolution: { width: effective.width ?? undefined, height: effective.height ?? undefined, fullscreen: effective.fullscreen }
       }
       const launchArgs = await describeLaunchCommand(launchOptions).catch(() => [])
-      if (trimming) {
-        this.markStep('process', { state: 'running', detail: '清理内存' })
-        const trimmed = await trimming
-        if (trimmed) this.note(`已清理内存：整理了 ${trimmed.processes} 个进程${trimmed.freedMb > 0 ? `，可用内存多了 ${trimmed.freedMb} MB` : ''}`)
-      }
+      abort.signal.throwIfAborted()
       this.markStep('process', { state: 'running', detail: `启动 ${instance.minecraftVersion ?? request.versionId}` })
       const child = await launchOffline(
         launchOptions,
@@ -566,20 +623,13 @@ export class CraftService extends EventEmitter {
             this.runLines.push(line)
             if (this.runLines.length > LOG_LIMIT) this.runLines.shift()
             this.log(line)
-            if (windowShown || finished || line.stream === 'launcher' || !isStartupFatal(instance.loader, line.text)) return
+            if (windowShown || finished || fatalScheduled || line.stream === 'launcher' || !isStartupFatal(instance.loader, line.text)) return
+            fatalScheduled = true
             setTimeout(() => {
               if (windowShown || finished || !this.child) return
-              finished = true
+              startupFailure = '游戏窗口出现前就报错，已停止卡住的进程'
               this.note('启动期报错，游戏卡在加载器错误窗口，正在停止进程')
               this.child?.kill()
-              void this.finishRun(context, {
-                exitCode: null,
-                crashReport: null,
-                windowShown: false,
-                launchArgs,
-                stopped: false,
-                message: '游戏窗口出现前就报错，已停止卡住的进程'
-              })
             }, STARTUP_FATAL_DELAY_MS)
           },
           windowReady: () => {
@@ -597,10 +647,11 @@ export class CraftService extends EventEmitter {
             this.note(`游戏已退出（code=${code ?? 'null'}）`)
             if (finished) return
             finished = true
-            void this.finishRun(context, { exitCode: code, crashReport, windowShown, launchArgs, stopped: abort.signal.aborted, message: null })
+            void this.finishRun(context, { exitCode: code, crashReport, windowShown, launchArgs, stopped: abort.signal.aborted, message: startupFailure })
           }
         }
       )
+      if (finished) return this.status()
       this.child = child
       this.markStep('process', { state: 'done', detail: `进程已启动（PID ${child.pid ?? '?'}）` })
       this.markStep('window', { state: 'running', detail: '等待游戏窗口' })
@@ -610,6 +661,8 @@ export class CraftService extends EventEmitter {
       const cancelled = abort.signal.aborted
       const message = error instanceof Error ? error.message : String(error)
       this.launchAbort = null
+      this.activeGameDir = null
+      this.launchTarget = null
       this.steps = this.steps.map((step) => (step.state === 'running' ? { ...step, state: cancelled ? 'skipped' : 'failed' } : step.state === 'pending' ? { ...step, state: 'skipped' } : step))
       this.note(cancelled ? '已取消启动' : `启动失败：${message}`)
       this.setStatus({ state: cancelled ? 'exited' : 'failed', error: cancelled ? '已取消启动' : message, steps: this.steps })
@@ -622,8 +675,9 @@ export class CraftService extends EventEmitter {
     result: { exitCode: number | null; crashReport: string | null; windowShown: boolean; launchArgs: string[]; stopped: boolean; message: string | null }
   ): Promise<void> {
     this.child = null
+    this.activeGameDir = null
+    this.launchTarget = null
     this.launchAbort = null
-    const settings = await this.store.load()
     const instance = await readInstance(context.options.folder, context.options.versionId).catch(() => null)
     const javas = await this.javas().catch(() => [])
     const analysis = await this.crash
@@ -641,8 +695,9 @@ export class CraftService extends EventEmitter {
             names: modNames(bundle.mods),
             javas,
             javaPath: context.options.javaPath,
-            requiredMajor: instance?.javaMajor ?? null,
-            maxMemoryMb: settings.maxMemoryMb,
+            requiredMajor: diagnosed.outcome?.requiredJavaMajor ?? instance?.javaMajor ?? null,
+            maxMemoryMb: context.options.maxMemoryMb,
+            memoryControlledByJvm: context.options.memoryControlledByJvm,
             totalMemMb: Math.round(totalmem() / 1024 / 1024)
           })
       })
@@ -684,10 +739,12 @@ export class CraftService extends EventEmitter {
       instance,
       javas,
       javaPath: request.javaPath ?? effective.javaPath,
+      jvmArgs: splitArgs(effective.jvmArgs),
       accountName: settings.accounts.find((account) => account.id === settings.selectedAccountId)?.name ?? null,
       maxMemoryMb: request.maxMemoryMb ?? effective.maxMemoryMb,
       totalMemMb: Math.round(totalmem() / 1024 / 1024),
       modsDir: join(instance.gameDir, 'mods'),
+      modEntries: (await this.mods.list({ folder, versionId: request.versionId, gameDir: instance.gameDir, loader: instance.loader, minecraftVersion: instance.minecraftVersion })).mods,
       missingFiles
     })
   }
@@ -737,10 +794,11 @@ export class CraftService extends EventEmitter {
     const instance = await readInstance(folder, request.versionId)
     const modsDir = join(instance.gameDir, 'mods')
     const value = request.value ?? null
+    if (request.kind === 'install-deps' || request.kind === 'disable-mod') await this.writableModContext(folder, request.versionId)
     if (request.kind === 'install-deps') {
       const modIds = (diagnosis?.missing.length ? diagnosis.missing : (value ?? '').split(',')).map((id) => id.trim()).filter(Boolean)
       if (modIds.length === 0) return { ok: false, message: '没有找到要补全的 modid' }
-      const handle = this.tasks.start('mod-install', `补全依赖（${modIds.join('、')}）`)
+      const handle = this.tasks.start('mod-install', `补全依赖（${modIds.join('、')}）`, `${folder}|${request.versionId}`, [instance.gameDir])
       try {
         const listed = await this.mods.list(await this.instanceContext(folder, request.versionId))
         const ranges: Record<string, string[]> = {}
@@ -788,10 +846,14 @@ export class CraftService extends EventEmitter {
       return { ok: true, message: `之后启动用 ${value}` }
     }
     if (request.kind === 'memory') {
+      const effective = resolveSettings(await this.instanceSettings.get(folder, request.versionId), await readPclVersionSetup(folder, request.versionId), await this.store.load()).effective
+      if (buildJvmPlan(null, effective.maxMemoryMb, splitArgs(effective.jvmArgs)).customMemory) return { ok: false, message: '最大内存由自定义 JVM 参数指定，请在这个版本的设置中调整 -Xmx；已保留原设置' }
       const mb = Number(value)
       if (!Number.isFinite(mb) || mb < 512) return { ok: false, message: '内存值不合法' }
-      await this.updateSettings({ maxMemoryMb: Math.round(mb) })
-      return { ok: true, message: `内存上限改成 ${Math.round(mb)} MB` }
+      if (mb > Math.round(totalmem() / 1048576 * 0.75)) return { ok: false, message: '这个内存值超过物理内存的 75%，请在版本设置里手动调整' }
+      await this.instanceSettings.patch(folder, request.versionId, { maxMemoryMb: Math.round(mb) })
+      this.emit('instances-changed', folder)
+      return { ok: true, message: `这个版本的内存上限已改成 ${Math.round(mb)} MB，重新检查后再启动` }
     }
     return { ok: false, message: '这个动作在界面上处理' }
   }
@@ -803,48 +865,55 @@ export class CraftService extends EventEmitter {
     return { folder: root, versionId, gameDir: instance.gameDir, loader: instance.loader, minecraftVersion: instance.minecraftVersion }
   }
 
+  private async writableModContext(folder: string, versionId: string): Promise<InstanceContext> {
+    const ctx = await this.instanceContext(folder, versionId)
+    if ((this.current.state === 'running' || this.current.state === 'starting') && (this.activeGameDir?.toLowerCase() === ctx.gameDir.toLowerCase() || this.launchTarget === `${ctx.folder}|${ctx.versionId}`.toLowerCase())) throw new Error('游戏正在使用这个 Mod 目录，停止游戏后再修改 Mod')
+    if (this.tasks.busyFor(`${ctx.folder}|${ctx.versionId}`) || this.tasks.busyForResource(ctx.gameDir)) throw new Error('这个游戏目录正在执行其他任务，等文件操作结束再修改 Mod')
+    return ctx
+  }
+
   async modList(folder: string, versionId: string): Promise<ModListResult> {
     return this.mods.list(await this.instanceContext(folder, versionId))
   }
 
   async modToggle(folder: string, versionId: string, file: string, enabled: boolean): Promise<ModListResult> {
-    const ctx = await this.instanceContext(folder, versionId)
+    const ctx = await this.writableModContext(folder, versionId)
     const result = await this.mods.toggle(ctx, String(file ?? ''), enabled === true)
     this.emit('instances-changed', ctx.folder)
     return result
   }
 
   async modRemove(folder: string, versionId: string, file: string): Promise<ModListResult> {
-    const ctx = await this.instanceContext(folder, versionId)
+    const ctx = await this.writableModContext(folder, versionId)
     const result = await this.mods.remove(ctx, String(file ?? ''))
     this.emit('instances-changed', ctx.folder)
     return result
   }
 
   async modRestore(folder: string, versionId: string, id: string): Promise<ModListResult> {
-    const ctx = await this.instanceContext(folder, versionId)
+    const ctx = await this.writableModContext(folder, versionId)
     const result = await this.mods.restore(ctx, String(id ?? ''))
     this.emit('instances-changed', ctx.folder)
     return result
   }
 
   async modToggleMany(folder: string, versionId: string, files: string[], enabled: boolean): Promise<ModBatchResult> {
-    const ctx = await this.instanceContext(folder, versionId)
+    const ctx = await this.writableModContext(folder, versionId)
     const result = await this.mods.toggleMany(ctx, files, enabled === true)
     this.emit('instances-changed', ctx.folder)
     return result
   }
 
   async modRemoveMany(folder: string, versionId: string, files: string[]): Promise<ModBatchResult> {
-    const ctx = await this.instanceContext(folder, versionId)
+    const ctx = await this.writableModContext(folder, versionId)
     const result = await this.mods.removeMany(ctx, files)
     this.emit('instances-changed', ctx.folder)
     return result
   }
 
   async modInstallDeps(folder: string, versionId: string, modIds: string[]): Promise<string> {
-    const ctx = await this.instanceContext(folder, versionId)
-    const handle = this.tasks.start('mod-install', `补全 ${ctx.versionId} 的依赖`, `${ctx.folder}|${ctx.versionId}`)
+    const ctx = await this.writableModContext(folder, versionId)
+    const handle = this.tasks.start('mod-install', `补全 ${ctx.versionId} 的依赖`, `${ctx.folder}|${ctx.versionId}`, [ctx.gameDir])
     void this.mods
       .installDependencies(ctx, modIds.filter((id) => typeof id === 'string'), { signal: handle.signal, onProgress: handle.progress })
       .then((outcome) => {
@@ -879,15 +948,15 @@ export class CraftService extends EventEmitter {
   }
 
   async modAddFiles(folder: string, versionId: string, paths: string[]): Promise<string[]> {
-    const ctx = await this.instanceContext(folder, versionId)
+    const ctx = await this.writableModContext(folder, versionId)
     const copied = await this.mods.addFiles(ctx, paths.filter((path): path is string => typeof path === 'string'))
     if (copied.length > 0) this.emit('instances-changed', ctx.folder)
     return copied
   }
 
   async modInstall(request: ModInstallRequest): Promise<string> {
-    const ctx = await this.instanceContext(request.folder, request.versionId)
-    const handle = this.tasks.start('mod-install', `安装 Mod 到 ${ctx.versionId}`, `${ctx.folder}|${ctx.versionId}`)
+    const ctx = await this.writableModContext(request.folder, request.versionId)
+    const handle = this.tasks.start('mod-install', `安装 Mod 到 ${ctx.versionId}`, `${ctx.folder}|${ctx.versionId}`, [ctx.gameDir])
     void this.mods
       .install(ctx, String(request.versionFileId ?? ''), { signal: handle.signal, onProgress: handle.progress })
       .then((result) => {
@@ -902,8 +971,8 @@ export class CraftService extends EventEmitter {
   }
 
   async modUpdate(request: ModUpdateRequest): Promise<string> {
-    const ctx = await this.instanceContext(request.folder, request.versionId)
-    const handle = this.tasks.start('mod-update', `更新 ${ctx.versionId} 的 Mod`, `${ctx.folder}|${ctx.versionId}`)
+    const ctx = await this.writableModContext(request.folder, request.versionId)
+    const handle = this.tasks.start('mod-update', `更新 ${ctx.versionId} 的 Mod`, `${ctx.folder}|${ctx.versionId}`, [ctx.gameDir])
     void this.mods
       .update(ctx, Array.isArray(request.updates) ? request.updates : [], { signal: handle.signal, onProgress: handle.progress })
       .then((result) => {
@@ -948,10 +1017,11 @@ export class CraftService extends EventEmitter {
     return this.instanceSettings.patch(ctx.folder, versionId, patch)
   }
 
-  private ensureInstanceIdle(versionId: string): void {
+  private ensureInstanceIdle(versionId: string, folder?: string): void {
     if ((this.current.state === 'running' || this.current.state === 'starting') && this.current.versionId === versionId) {
       throw new Error('游戏正在运行，先停止再做这个操作')
     }
+    if (folder && this.tasks.busyFor(`${folder}|${versionId}`)) throw new Error('这个版本正在安装、更新或清理文件，请等任务结束再操作')
   }
 
   private async moveInstanceOverride(root: string, from: string, to: string): Promise<void> {
@@ -968,7 +1038,7 @@ export class CraftService extends EventEmitter {
   async renameInstance(folder: string, versionId: string, nextId: string): Promise<{ id: string; jarRenamed: boolean }> {
     if (!validVersionId(versionId)) throw new Error('版本名不合法')
     const root = await this.knownFolder(folder)
-    this.ensureInstanceIdle(versionId)
+    this.ensureInstanceIdle(versionId, root)
     const result = await renameVersionDir(root, versionId, String(nextId ?? ''))
     await this.moveInstanceOverride(root, versionId, result.id)
     const settings = await this.store.load()
@@ -981,7 +1051,7 @@ export class CraftService extends EventEmitter {
   async copyInstance(folder: string, versionId: string, name: string | null): Promise<CopyInstanceResult> {
     if (!validVersionId(versionId)) throw new Error('版本名不合法')
     const root = await this.knownFolder(folder)
-    this.ensureInstanceIdle(versionId)
+    this.ensureInstanceIdle(versionId, root)
     const result = await copyVersionDir(root, versionId, name ?? undefined)
     await this.instanceSettings.patch(root, result.id, await this.instanceSettings.get(root, versionId))
     this.emit('instances-changed', root)
@@ -992,7 +1062,7 @@ export class CraftService extends EventEmitter {
   async deleteInstance(folder: string, versionId: string): Promise<InstanceTrashRecord> {
     if (!validVersionId(versionId)) throw new Error('版本名不合法')
     const root = await this.knownFolder(folder)
-    this.ensureInstanceIdle(versionId)
+    this.ensureInstanceIdle(versionId, root)
     const record = await trashVersionDir(root, versionId)
     await this.instanceSettings.patch(root, versionId, EMPTY_OVERRIDE)
     const settings = await this.store.load()
@@ -1107,7 +1177,7 @@ export class CraftService extends EventEmitter {
     const type = installTypeOf(request.projectType)
     const dir = join(ctx.gameDir, type === 'shader' ? 'shaderpacks' : 'resourcepacks')
     const label = type === 'shader' ? '光影' : '资源包'
-    const handle = this.tasks.start('mod-install', `安装${label}到 ${ctx.versionId}`, `${ctx.folder}|${ctx.versionId}`)
+    const handle = this.tasks.start('mod-install', `安装${label}到 ${ctx.versionId}`, `${ctx.folder}|${ctx.versionId}`, [ctx.gameDir])
     void this.community
       .installTo(dir, String(request.versionFileId ?? ''), { signal: handle.signal, onProgress: handle.progress })
       .then((result) => {

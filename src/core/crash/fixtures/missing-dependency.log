@@ -1,0 +1,6 @@
+[20:11:58] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.10
+[20:11:59] [main/ERROR]: Mod resolution failed
+ - Mod 'Sodium Extra' (sodium-extra) 0.6.1 requires any version of fabric-api, which is missing!
+[20:11:59] [main/ERROR]: Mod resolution encountered an incompatible mod set!
+A potential solution has been determined:
+	 - Install fabric-api, any version.

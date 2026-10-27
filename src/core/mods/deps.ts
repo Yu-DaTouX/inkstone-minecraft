@@ -1,10 +1,15 @@
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { constants, existsSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { copyFile, readdir, rm } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import type { ModEntry, ModrinthVersion } from '../../shared/mods-api.ts'
 import type { TaskProgress } from '../../shared/api.ts'
 import { downloadFiles } from '../download/download.ts'
 import { compareVersions, matchesVersionRange } from './mc-range.ts'
 import type { ModrinthClient } from './modrinth.ts'
+import { readJarMod } from './metadata.ts'
+import { sha1Of } from './scan.ts'
+import { moveToTrash, restoreFromTrash } from './trash.ts'
 
 const PLATFORM_IDS = new Set([
   'minecraft',
@@ -71,6 +76,7 @@ export function collectDependencyNeeds(mods: ModEntry[], modIds: string[]): Depe
   }
   for (const id of wanted) ensure(id)
   for (const mod of mods) {
+    if (!mod.enabled) continue
     for (const dep of mod.dependencies) {
       const id = dep.modId.toLowerCase()
       if (!wanted.has(id) || !dep.required || dep.kind === 'breaks') continue
@@ -87,7 +93,7 @@ export function missingDependencyIds(mods: ModEntry[]): string[] {
   const ids = new Set<string>()
   for (const mod of mods) {
     for (const issue of mod.issues) {
-      if (issue.kind !== 'missing-dependency') continue
+      if (issue.kind !== 'missing-dependency' && issue.kind !== 'dependency-version') continue
       const id = (issue.modId ?? '').trim().toLowerCase()
       if (id) ids.add(id)
     }
@@ -117,15 +123,19 @@ function rangeMatches(range: string, label: string): boolean {
 }
 
 export function pickVersionForRange(versions: ModrinthVersion[], range: string | null | undefined): { version: ModrinthVersion | null; reason: string | null } {
+  return pickVersionForRanges(versions, range ? [range] : [])
+}
+
+export function pickVersionForRanges(versions: ModrinthVersion[], ranges: string[]): { version: ModrinthVersion | null; reason: string | null } {
   const sorted = [...versions].sort(
     (a, b) => compareVersions(dependencyVersionLabel(b), dependencyVersionLabel(a)) || (b.publishedAt > a.publishedAt ? 1 : -1)
   )
   if (sorted.length === 0) return { version: null, reason: 'Modrinth 上没有适合本加载器和游戏版本的文件' }
-  const wanted = normaliseRange(range)
-  if (!wanted) return { version: sorted[0], reason: null }
-  const hit = sorted.find((version) => rangeMatches(wanted, dependencyVersionLabel(version)))
+  const wanted = [...new Set(ranges.map(normaliseRange).filter((item): item is string => !!item))]
+  if (wanted.length === 0) return { version: sorted[0], reason: null }
+  const hit = sorted.find((version) => wanted.every((range) => rangeMatches(range, dependencyVersionLabel(version))))
   if (hit) return { version: hit, reason: null }
-  return { version: null, reason: `需要 ${wanted}，Modrinth 上的 ${sorted.length} 个版本都不符合（最新 ${dependencyVersionLabel(sorted[0]!)}）` }
+  return { version: null, reason: `需要 ${wanted.join(' 且 ')}（须同时满足），Modrinth 上的 ${sorted.length} 个版本都不符合；请调整提出这些要求的 Mod 版本` }
 }
 
 const FABRIC_FAMILY_LOADERS = ['quilt', 'fabric']
@@ -158,7 +168,9 @@ async function findProject(client: ModrinthClient, modId: string, loader: string
   const queries = [modId, ...spacedQueries(modId)]
   for (const query of queries) {
     const search = await client.search({ query, loader, minecraft, sort: 'relevance', limit: 5, offset: 0 })
-    const hit = search.hits.find((item) => item.slug.toLowerCase() === modId.toLowerCase()) ?? search.hits[0]
+    // A relevance ranking is not evidence that a project provides this modid.
+    const normal = (value: string): string => value.toLowerCase().replace(/[-_\s]/g, '')
+    const hit = search.hits.find((item) => normal(item.slug) === normal(modId))
     if (hit) return [hit.projectId]
   }
   return []
@@ -187,14 +199,10 @@ export async function resolveDependencyNeeds(
     if (options.signal?.aborted) throw new Error('已取消')
     try {
       const versions = await versionsOf(client, need, context)
-      const range = need.ranges.find((item) => !!item) ?? null
-      let chosen = pickVersionForRange(versions, range)
-      if (!chosen.version && need.ranges.length > 1) {
-        for (const candidate of need.ranges) {
-          chosen = pickVersionForRange(versions, candidate)
-          if (chosen.version) break
-        }
-      }
+      const compatible = versions.filter((version) =>
+        (!context.minecraftVersion || version.gameVersions.includes(context.minecraftVersion)) &&
+        loaderTags(context.loader).some((loader) => version.loaders.includes(loader)))
+      const chosen = pickVersionForRanges(compatible, need.ranges)
       picks.push({ need, version: chosen.version, reason: chosen.version ? null : (chosen.reason ?? '没有可用版本') })
     } catch (error) {
       picks.push({ need, version: null, reason: error instanceof Error ? error.message : String(error) })
@@ -217,35 +225,91 @@ export async function installDependencyNeeds(
     ...(options.onProgress ? { onProgress: options.onProgress } : {})
   })
   outcome.picks = picks
-  const downloads: Array<{ url: string; dest: string; sha1: string; size: number; modId: string }> = []
+  const disabled = new Map<string, string>()
+  for (const name of (await readdir(context.modsDir).catch(() => [] as string[])).filter((name) => name.endsWith('.jar.disabled'))) {
+    const meta = await readJarMod(join(context.modsDir, name))
+    for (const id of [meta.modId, ...meta.provides, ...meta.nestedIds]) if (id) disabled.set(id.toLowerCase(), name)
+  }
+  const downloads: Array<{ url: string; dest: string; target: string; sha1: string; size: number; pick: DependencyPick }> = []
+  const targets = new Set<string>()
   for (const pick of picks) {
     if (!pick.version) {
       outcome.failed.push({ modId: pick.need.modId, reason: pick.reason ?? '没有可用版本' })
       continue
     }
-    const dest = join(context.modsDir, pick.version.file.fileName)
-    if (existsSync(dest)) {
+    const paused = disabled.get(pick.need.modId.toLowerCase())
+    if (paused) { outcome.failed.push({ modId: pick.need.modId, reason: `${paused} 已停用，请先到 Mod 管理中确认是否启用` }); continue }
+    const fileName = pick.version.file.fileName
+    if (basename(fileName) !== fileName || /[\\/:]/.test(fileName) || !fileName.endsWith('.jar')) {
+      outcome.failed.push({ modId: pick.need.modId, reason: '下载来源返回了无效的 Mod 文件名' })
+      continue
+    }
+    const target = join(context.modsDir, fileName)
+    if (targets.has(target.toLowerCase())) throw new Error(`前置下载计划有同名文件 ${fileName}，已保留原文件`)
+    targets.add(target.toLowerCase())
+    if (existsSync(target) && await sha1Of(target) === pick.version.file.sha1) {
       outcome.skipped.push(pick.version.file.fileName)
       continue
     }
+    if (existsSync(target)) {
+      const meta = await readJarMod(target)
+      if (meta.modId?.toLowerCase() !== pick.need.modId.toLowerCase()) throw new Error(`${fileName} 已有同名但属于其他 Mod 的文件，请先在 Mod 管理中确认`)
+    }
     downloads.push({
       url: pick.version.file.url,
-      dest,
+      dest: join(context.modsDir, `.${randomUUID()}.download`),
+      target,
       sha1: pick.version.file.sha1,
       size: pick.version.file.size,
-      modId: pick.need.modId
+      pick
     })
   }
   if (downloads.length > 0) {
-    await downloadFiles(
-      downloads.map((item) => ({ url: item.url, dest: item.dest, sha1: item.sha1, size: item.size })),
-      {
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-        onProgress: (progress, detail) => options.onProgress?.(progress, detail ?? '下载依赖')
+    const committed: string[] = []
+    const trashed: string[] = []
+    try {
+      await downloadFiles(
+        downloads.map((item) => ({ url: item.url, dest: item.dest, sha1: item.sha1, size: item.size })),
+        {
+          ...(options.signal ? { signal: options.signal } : {}),
+          ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+          onProgress: (progress, detail) => options.onProgress?.(progress, detail ?? '下载依赖')
+        }
+      )
+      // Check the jar's declared identity and version before replacing anything.
+      // A project's slug and release title do not prove either of these facts.
+      for (const item of downloads) {
+        const meta = await readJarMod(item.dest)
+        const id = item.pick.need.modId.toLowerCase()
+        if (![meta.modId, ...meta.provides, ...meta.nestedIds].some((value) => value?.toLowerCase() === id)) throw new Error(`${item.pick.need.modId}：下载文件没有声明提供这个前置，已保留原文件`)
+        if (meta.modId?.toLowerCase() === id && item.pick.need.ranges.some((range) => !meta.version || !rangeMatches(range, meta.version))) throw new Error(`${item.pick.need.modId}：文件内版本 ${meta.version ?? '未知'} 不满足 ${item.pick.need.ranges.join(' 且 ')}`)
+        if (meta.mcRange && context.minecraftVersion && !matchesVersionRange(meta.mcRange, context.minecraftVersion)) throw new Error(`${item.pick.need.modId}：下载文件要求 Minecraft ${meta.mcRange}`)
       }
-    )
-    for (const item of downloads) outcome.installed.push(item.dest.split(/[\\/]/).pop() ?? item.dest)
+      const existing = await readdir(context.modsDir)
+      for (const item of downloads) {
+        options.signal?.throwIfAborted()
+        for (const name of existing.filter((name) => name.endsWith('.jar'))) {
+          const path = join(context.modsDir, name)
+          if (!existsSync(path)) continue
+          const meta = await readJarMod(path)
+          if (path === item.target || meta.modId?.toLowerCase() === item.pick.need.modId.toLowerCase()) {
+            const record = await moveToTrash(dirname(context.modsDir), 'dependency-repair', name)
+            trashed.push(record.id)
+          }
+        }
+        await copyFile(item.dest, item.target, constants.COPYFILE_EXCL)
+        committed.push(item.target)
+        outcome.installed.push(basename(item.target))
+      }
+    } catch (error) {
+      const failures: unknown[] = []
+      for (const path of committed) await rm(path, { force: true }).catch((e) => failures.push(e))
+      for (const id of trashed.reverse()) await restoreFromTrash(dirname(context.modsDir), id).catch((e) => failures.push(e))
+      if (failures.length) throw new AggregateError([error, ...failures], '补全失败，部分原文件保留在 Mod 回收站，请先恢复后再重试')
+      throw error
+    } finally {
+      for (const item of downloads) await rm(item.dest, { force: true })
+    }
   }
   return outcome
 }

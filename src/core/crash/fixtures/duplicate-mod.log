@@ -1,0 +1,5 @@
+[16:30:11] [main/INFO]: Loading 5 mods:
+[16:30:11] [main/WARN]: Found duplicate mod id jei in mods/jei-1.20.1.jar and mods/jei-1.20.1-copy.jar
+[16:30:11] [main/ERROR]: Duplicate mod id: jei
+net.fabricmc.loader.impl.FormattedException: Duplicate mods found
+	at net.fabricmc.loader.impl.discovery.ModSolver.add(ModSolver.java:88)

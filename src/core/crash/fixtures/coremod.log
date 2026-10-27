@@ -1,0 +1,6 @@
+[11:20:30] [main/INFO]: Forge mod loading, version 10.13.4.1614, for MC 1.7.10
+[11:20:31] [main/ERROR]: An error occurred while loading the coremod inkstonecore
+java.lang.RuntimeException: Coremod inkstonecore.TweakerTransformer failed to inject
+	at net.minecraftforge.fml.relauncher.CoreModManager.loadCoreMod(CoreModManager.java:306)
+Caused by: java.lang.ClassNotFoundException: inkstonecore.TweakerTransformer
+	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:520)

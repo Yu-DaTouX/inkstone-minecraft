@@ -1,0 +1,9 @@
+[20:12:04] [main/INFO]: Loading Minecraft 1.20.1 with Fabric Loader 0.15.11
+[20:12:04] [main/INFO]: Loading 2 mods:
+	- fabric-api 0.92.2+1.20.1
+	- sodium 0.5.8
+[20:12:05] [main/ERROR]: Minecraft failed to start
+java.lang.UnsupportedClassVersionError: net/caffeinemc/mods/sodium/client/SodiumClientMod has been compiled by a more recent version of the Java Runtime (class file version 61.0), this version of the Java Runtime only recognizes class file versions up to 55.0
+	at java.base/java.lang.ClassLoader.defineClass1(Native Method)
+	at net.fabricmc.loader.impl.launch.knot.KnotClassLoader.loadClass(KnotClassLoader.java:123)
+[20:12:06] [main/ERROR]: A fatal exception has been thrown

@@ -53,7 +53,7 @@ export function analyzeMods(mods: ModEntry[], context: AnalyzeContext): ModEntry
       active.set(id, list)
     }
   }
-  const connector = [...active.keys()].some((id) => CONNECTOR_IDS.has(id))
+  const connector = [...active.entries()].some(([id, providers]) => CONNECTOR_IDS.has(id) && providers.some((item) => item.enabled))
   const modIdCounts = new Map<string, number>()
   for (const mod of mods) {
     const id = mod.modId?.toLowerCase()
@@ -81,7 +81,16 @@ export function analyzeMods(mods: ModEntry[], context: AnalyzeContext): ModEntry
         }
         continue
       }
-      if (!dep.required || usable.length > 0) continue
+      if (!dep.required || !mod.enabled) continue
+      if (usable.length > 0) {
+        // An alias or nested jar has no independently known version. Only reject
+        // versions that can actually be checked against this dependency's id.
+        const unknown = usable.some((item) => item.modId?.toLowerCase() !== depId || !item.version)
+        if (!unknown && !usable.some((item) => matchesVersionRange(dep.versionRange, item.version))) {
+          issues.push({ kind: 'dependency-version', text: `前置 ${dep.modId} 需要 ${dep.versionRange}，已安装 ${usable.map((item) => item.version).join('、')}`, modId: dep.modId })
+        }
+        continue
+      }
       const text = disabledProvides.has(depId) ? `缺少前置 ${dep.modId}（已停用）` : `缺少前置 ${dep.modId}`
       issues.push({ kind: 'missing-dependency', text, modId: dep.modId })
     }

@@ -13,6 +13,7 @@ export interface CrashActionContext {
   requiredMajor: number | null
   maxMemoryMb: number
   totalMemMb: number
+  memoryControlledByJvm?: boolean
 }
 
 function memoryLabel(mb: number): string {
@@ -60,10 +61,11 @@ export function buildCrashActions(context: CrashActionContext): CrashAction[] {
       })
     }
   }
-  if (kinds.has('memory')) {
-    const suggested = suggestMemoryMb(context.maxMemoryMb, context.totalMemMb)
-    if (suggested > context.maxMemoryMb) {
-      actions.push({ kind: 'memory', label: `调高内存到 ${memoryLabel(suggested)}`, hint: `当前 ${memoryLabel(context.maxMemoryMb)}`, value: String(suggested) })
+  if (kinds.has('memory') && !context.memoryControlledByJvm) {
+    const lower = context.rule?.id === 'native-memory'
+    const suggested = lower ? Math.max(1024, Math.floor(Math.min(context.maxMemoryMb * 0.75, context.totalMemMb * 0.5) / 256) * 256) : suggestMemoryMb(context.maxMemoryMb, context.totalMemMb)
+    if ((lower && suggested < context.maxMemoryMb) || (!lower && suggested > context.maxMemoryMb)) {
+      actions.push({ kind: 'memory', label: `${lower ? '降低' : '调高'}内存到 ${memoryLabel(suggested)}`, hint: `只修改这个版本；当前 ${memoryLabel(context.maxMemoryMb)}`, value: String(suggested) })
     }
   }
   if (kinds.has('disable-mod') && context.suspects.length > 0) {
@@ -71,6 +73,7 @@ export function buildCrashActions(context: CrashActionContext): CrashAction[] {
     actions.push({ kind: 'disable-mod', label: `停用 ${suspect.name}`, hint: suspect.fileName, value: suspect.fileName })
   }
   if (kinds.has('repair')) actions.push({ kind: 'repair', label: '去修复版本文件', hint: '版本页 → 修复', value: null })
+  if (kinds.has('settings') || (kinds.has('memory') && context.memoryControlledByJvm)) actions.push({ kind: 'settings', label: '检查版本启动参数', hint: context.memoryControlledByJvm ? '内存由自定义 JVM 参数指定，请在版本设置中修改' : '打开这个版本的设置', value: null })
   if (kinds.has('mods')) actions.push({ kind: 'mods', label: '打开 Mod 管理', hint: null, value: null })
   actions.push({ kind: 'export', label: '导出报告', hint: 'zip 诊断包', value: null })
   return actions

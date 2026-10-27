@@ -50,15 +50,18 @@ function countHits(lines: string[], needle: string, weight: number): number {
   let hits = 0
   for (const line of lines) {
     if (!line.toLowerCase().includes(lowered)) continue
+    if (weight === 1 && !isStackLine(line) && !/error|exception|failed|requires|missing|duplicate|mixin|incompatible|provided by|caused by/i.test(line)) continue
     hits += isStackLine(line) ? weight * 2 : weight
   }
   return hits
 }
 
 export function findSuspects(text: string, mods: ModFileInfo[]): CrashSuspect[] {
-  const lines = text.split(/\r?\n/)
+  // Ordinary mod lists and successful startup messages are not crash evidence.
+  const lines = text.split(/\r?\n/).filter((line) => !/\/(?:INFO|DEBUG|TRACE)\]|\[(?:INFO|DEBUG|TRACE)\]/i.test(line))
   const suspects: CrashSuspect[] = []
   for (const mod of mods) {
+    if (!mod.enabled) continue
     let hits = 0
     const reasons: string[] = []
     if (mod.modId && mod.modId.length > 2) {
@@ -105,7 +108,17 @@ export function findKeywords(text: string): string[] {
 export function diagnose(input: DiagnosisInput): DiagnosisResult {
   const text = input.text
   const names = modNames(input.mods)
-  const rule = applicableRules(input.loader).find((candidate) => candidate.match.some((pattern) => pattern.test(text))) ?? null
+  const priority: Record<string, number> = {
+    'native-memory': 120, 'jvm-arguments': 115, 'java-version': 110, 'disk-space': 105,
+    'missing-dependency': 100, 'duplicate-mod': 95, 'out-of-memory': 90,
+    'corrupt-file': 85, 'mixin-failure': 80, 'entrypoint-crash': 75,
+    'gpu-driver': 65, 'native-library': 60, 'forge-incomplete': 40, coremod: 20
+  }
+  // Explicit dependency / root exceptions take precedence over wrapper errors
+  // such as FMLLoadingException and EntrypointException.
+  const rule = applicableRules(input.loader)
+    .filter((candidate) => candidate.match.some((pattern) => pattern.test(text)))
+    .sort((a, b) => (priority[b.id] ?? 0) - (priority[a.id] ?? 0))[0] ?? null
   const outcome = rule ? rule.describe({ text, names }) : null
   const evidence = rule ? pickEvidence(input.sources, new RegExp(rule.evidence.source, rule.evidence.flags)) : []
   return {

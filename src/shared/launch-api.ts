@@ -18,10 +18,10 @@ export interface LaunchStep {
 }
 
 export type PreflightLevel = 'ok' | 'warn' | 'block'
-export type PreflightActionKind = 'install-deps' | 'repair' | 'java' | 'memory' | 'disable-mod'
+export type PreflightActionKind = 'install-deps' | 'repair' | 'java' | 'memory' | 'disable-mod' | 'mods'
 
 export interface PreflightItem {
-  id: 'account' | 'java' | 'memory' | 'deps' | 'duplicates' | 'files'
+  id: 'account' | 'java' | 'memory' | 'deps' | 'duplicates' | 'files' | 'compatibility' | 'jvm'
   level: PreflightLevel
   title: string
   detail: string

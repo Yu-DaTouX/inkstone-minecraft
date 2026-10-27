@@ -1,0 +1,5 @@
+[09:15:01] [main/INFO]: Launching target 'forgeclient'
+[09:15:02] [main/ERROR]: Failed to find patched client jar for 1.20.1-47.2.0
+net.minecraftforge.fml.loading.FMLLoadingException: Missing patched client jar 1.20.1-47.2.0
+	at net.minecraftforge.fml.loading.FMLLoader.load(FMLLoader.java:213)
+	at cpw.mods.bootstraplauncher.BootstrapLauncher.main(BootstrapLauncher.java:137)

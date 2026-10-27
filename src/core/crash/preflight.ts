@@ -2,6 +2,8 @@ import type { InstanceInfo, JavaEntry, LoaderKind } from '../../shared/api.ts'
 import type { PreflightItem, PreflightReport } from '../../shared/launch-api.ts'
 import { pickJava } from '../java.ts'
 import { duplicateModIds, missingDependencies, modLabel, modNames, scanMods } from './mods.ts'
+import type { ModEntry } from '../../shared/mods-api.ts'
+import { buildJvmPlan } from '../jvm.ts'
 
 export interface PreflightInput {
   versionId: string
@@ -14,6 +16,8 @@ export interface PreflightInput {
   totalMemMb: number
   modsDir: string
   missingFiles: number | null
+  modEntries?: ModEntry[]
+  jvmArgs?: string[]
 }
 
 function memoryLabel(mb: number): string {
@@ -34,7 +38,10 @@ export function filesItem(missing: number | null): PreflightItem {
 }
 
 export async function preflightLaunch(input: PreflightInput): Promise<PreflightReport> {
+  const plan = buildJvmPlan(input.javas.find((java) => java.path === input.javaPath)?.majorVersion ?? input.instance.javaMajor, input.maxMemoryMb, input.jvmArgs ?? [])
+  input = { ...input, maxMemoryMb: plan.maxMemoryMb }
   const items: PreflightItem[] = []
+  for (const issue of plan.issues) items.push({ id: 'jvm', level: issue.level, title: 'Java 启动参数需要调整', detail: issue.message, action: 'java', value: null })
   items.push(
     input.accountName
       ? { id: 'account', level: 'ok', title: `账号 ${input.accountName}`, detail: '', action: null, value: null }
@@ -49,7 +56,7 @@ export async function preflightLaunch(input: PreflightInput): Promise<PreflightR
       id: 'java',
       level: 'block',
       title: `没有找到 Java ${required ?? ''}`.trim(),
-      detail: '在设置 → Java 里添加一个 Java 21',
+      detail: `在设置 → Java 里添加 Java ${required ?? '对应版本'}，然后重新检查`,
       action: 'java',
       value: null
     })
@@ -89,7 +96,11 @@ export async function preflightLaunch(input: PreflightInput): Promise<PreflightR
     items.push({ id: 'memory', level: 'ok', title: `内存上限 ${memoryLabel(input.maxMemoryMb)}`, detail: '', action: null, value: null })
   }
 
-  const mods = await scanMods(input.modsDir)
+  const mods = input.modEntries ? input.modEntries.map((mod) => ({
+    fileName: mod.file, path: '', modId: mod.modId, name: mod.name, version: mod.version,
+    enabled: mod.enabled, mixins: [], packages: [], provides: [...mod.provides, ...mod.nestedIds],
+    depends: Object.fromEntries(mod.dependencies.filter((dep) => dep.required && dep.kind !== 'breaks').map((dep) => [dep.modId, dep.versionRange ?? '*']))
+  })) : await scanMods(input.modsDir)
   const issues = missingDependencies(mods)
   if (issues.length > 0) {
     const names = modNames(mods)
@@ -118,6 +129,11 @@ export async function preflightLaunch(input: PreflightInput): Promise<PreflightR
       value: duplicates[0].files[1] ?? null
     })
   }
+
+  const compatibility = input.modEntries?.filter((mod) => mod.enabled).flatMap((mod) => mod.issues
+    .filter((issue) => ['dependency-version', 'incompatible', 'mc-mismatch', 'loader-mismatch'].includes(issue.kind))
+    .map((issue) => `${mod.name}：${issue.text}`)) ?? []
+  if (compatibility.length) items.push({ id: 'compatibility', level: 'warn', title: `${compatibility.length} 项 Mod 兼容问题`, detail: compatibility.slice(0, 3).join('；'), action: 'mods', value: null })
 
   items.push(filesItem(input.missingFiles))
   return {

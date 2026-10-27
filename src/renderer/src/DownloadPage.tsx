@@ -6,6 +6,7 @@ import { Button } from './ui/Button'
 import { ComboBox } from './ui/ComboBox'
 import { ListBoxItem, ListBoxSection } from './ui/ListBox'
 import { Notice } from './ui/Notice'
+import { errorText } from '../../shared/errors.ts'
 import { ProgressBar } from './ui/Progress'
 import { Select } from './ui/Select'
 import { Switch } from './ui/Switch'
@@ -121,8 +122,7 @@ function LoaderCard({ label, hint, swatch, selected, disabled, onSelect }: Loade
 }
 
 function cleanError(cause: unknown): string {
-  const message = cause instanceof Error ? cause.message : String(cause)
-  return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  return errorText(cause)
 }
 
 function percentOf(task: TaskInfo | null): number | null {

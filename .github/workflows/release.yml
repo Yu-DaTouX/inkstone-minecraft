@@ -21,7 +21,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
-      - run: npm run release
+      - run: npm run test:all
+      - run: npm run dist
+      - run: npm run verify:release
+      - name: Upload verified release assets and publish
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $releaseVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $releaseTag = "v$releaseVersion"
+          if ($env:GITHUB_REF_NAME -ne $releaseTag) { throw "Tag does not match package version" }
+          $releaseNotes = "docs/releases/$releaseVersion.md"
+          if (!(Test-Path -LiteralPath $releaseNotes)) { throw "Missing release notes" }
+          gh release create $releaseTag --verify-tag --draft --title "Inkstone Minecraft $releaseVersion" --notes-file $releaseNotes "dist/Inkstone-Minecraft-Setup-$releaseVersion.exe" "dist/Inkstone-Minecraft-Setup-$releaseVersion.exe.blockmap" "dist/latest.yml"
+          if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
+          gh release edit $releaseTag --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw "Release publication failed" }

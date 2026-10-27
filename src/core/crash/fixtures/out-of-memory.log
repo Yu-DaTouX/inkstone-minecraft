@@ -1,0 +1,7 @@
+[14:02:10] [Render thread/INFO]: Setting user: Steve
+[14:02:11] [Render thread/INFO]: Stopping!
+java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.util.Arrays.copyOf(Arrays.java:3537)
+	at net.minecraft.class_310.method_1514(class_310.java:1201)
+[14:02:11] [Render thread/ERROR]: Failed to allocate memory for chunk render buffer
+[14:02:12] [main/INFO]: Process exited with code 1

@@ -162,7 +162,7 @@ export interface LauncherSettings {
   theme: ThemePreference
   /** 关窗口时退到托盘（游戏照常运行） */
   closeToTray: boolean
-  /** 启动游戏前清理一次内存 */
+  /** 兼容旧配置；全局工作集整理已停用，不再操作其他进程。 */
   cleanMemoryOnLaunch: boolean
 }
 
@@ -224,6 +224,9 @@ export interface LogLine {
 }
 
 export interface CraftApi {
+  performance(folder: string, versionId: string): Promise<import('./performance-api.ts').PerformanceReport>
+  applyPerformance(folder: string, versionId: string): Promise<import('./performance-api.ts').PerformanceResult>
+  restorePerformance(folder: string, versionId: string): Promise<import('./performance-api.ts').PerformanceResult>
   settings(): Promise<LauncherSettings>
   updateSettings(patch: Partial<LauncherSettings>): Promise<LauncherSettings>
   instances(folder: string): Promise<InstanceInfo[]>

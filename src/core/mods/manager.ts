@@ -1,4 +1,4 @@
-import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, rename, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type {
   ModBatchResult,
@@ -13,7 +13,7 @@ import type {
   ModUpdateResult
 } from '../../shared/mods-api.ts'
 import type { TaskProgress } from '../../shared/api.ts'
-import { downloadFiles, type RemoteFile } from '../download/download.ts'
+import { commitModDownloads, type ModDownload } from './transaction.ts'
 import { analyzeMods, countIssues } from './analyze.ts'
 import { collectDependencyNeeds, installDependencyNeeds, missingDependencyIds, type DependencyInstallOutcome } from './deps.ts'
 import { ModrinthClient } from './modrinth.ts'
@@ -234,26 +234,13 @@ export class ModsManager {
     if (queue.length === 0) return result
     const dir = modsDir(ctx.gameDir)
     await mkdir(dir, { recursive: true })
-    const tempOf = (item: ModUpdateInfo): string => join(dir, `.${item.fileSha1}.download`)
-    const downloads: RemoteFile[] = queue.map((item) => ({ url: item.downloadUrl, dest: tempOf(item), sha1: item.fileSha1, size: item.fileSize }))
-    options.onProgress?.({ done: 0, total: queue.length, unit: 'files' }, '下载更新')
-    await downloadFiles(downloads, {
-      source: 'official',
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}),
+    const plan = queue.map((item) => ({ file: item.fileName, url: item.downloadUrl, sha1: item.fileSha1, size: item.fileSize, replaces: [files.find((file) => file.sha1 === item.sha1 && file.enabled)!.file] }))
+    await commitModDownloads(ctx.gameDir, ctx.versionId, plan, {
+      source: 'official', signal: options.signal, fetchImpl: this.fetchImpl,
       onProgress: (progress) => options.onProgress?.(progress, '下载更新')
     })
     for (const item of queue) {
-      const temp = tempOf(item)
-      const current = files.find((file) => file.sha1 === item.sha1)
-      if (!current) {
-        await rm(temp, { force: true })
-        result.skipped.push(item.file)
-        continue
-      }
-      await moveToTrash(ctx.gameDir, ctx.versionId, current.file)
-      result.trashed.push(current.file)
-      await rename(temp, join(dir, item.fileName))
+      result.trashed.push(files.find((file) => file.sha1 === item.sha1 && file.enabled)!.file)
       result.updated.push(item.fileName)
       this.updates.delete(this.updateKey(ctx, item.sha1))
     }
@@ -272,45 +259,53 @@ export class ModsManager {
     return this.client.project(projectId)
   }
 
-  private async installedContext(ctx: InstanceContext): Promise<{ files: Awaited<ReturnType<typeof scanModFiles>>; projectIds: Set<string>; names: Set<string> }> {
+  private async installedContext(ctx: InstanceContext): Promise<{ files: Awaited<ReturnType<typeof scanModFiles>>; projectIds: Set<string>; versionIds: Set<string>; disabledProjectIds: Set<string>; names: Set<string> }> {
     const files = await scanModFiles(ctx.gameDir, this.hashCache)
     const projectIds = new Set<string>()
+    const versionIds = new Set<string>()
+    const disabledProjectIds = new Set<string>()
     const known = await this.client.byHashes([...new Set(files.map((file) => file.sha1))]).catch(() => new Map<string, ModrinthVersion>())
     for (const [sha1, version] of known) {
-      projectIds.add(version.projectId)
+      if (files.some((file) => file.sha1 === sha1 && file.enabled)) { projectIds.add(version.projectId); versionIds.add(version.id) }
+      else disabledProjectIds.add(version.projectId)
       const existing = this.store.modrinthOf(sha1)
       if (!existing || existing.projectId !== version.projectId) {
         await this.store.rememberModrinth(sha1, { projectId: version.projectId, title: null, iconUrl: existing?.iconUrl ?? null })
       }
     }
-    return { files, projectIds, names: new Set(files.map((file) => file.file.toLowerCase())) }
+    return { files, projectIds, versionIds, disabledProjectIds, names: new Set(files.map((file) => file.file.toLowerCase())) }
   }
 
   async install(ctx: InstanceContext, versionFileId: string, options: ModWorkOptions = {}): Promise<ModInstallResult> {
     const version = await this.client.versionById(versionFileId)
     if (!version) throw new Error('Modrinth 上没有这个版本')
+    if (!this.usable(version, ctx)) throw new Error('这个文件不适合当前 Minecraft 或加载器版本，请重新选择')
     const project = await this.client.project(version.projectId).catch(() => null)
-    const { projectIds, names } = await this.installedContext(ctx)
+    const { files, projectIds, versionIds, disabledProjectIds, names } = await this.installedContext(ctx)
+    if (disabledProjectIds.has(version.projectId) && !projectIds.has(version.projectId)) throw new Error('这个 Mod 已被停用，请在 Mod 管理中确认是否启用；不会自动重新安装')
+    if (projectIds.has(version.projectId) && !versionIds.has(version.id)) throw new Error('已经安装了这个 Mod 的其他版本，请在 Mod 管理中更新或更换，避免重复安装')
     const plan: Array<{ version: ModrinthVersion; kind: 'target' | 'dependency' }> = [{ version, kind: 'target' }]
-    const dependencyVersions = await this.resolveDependencies(version, ctx, projectIds, options)
+    const dependencyVersions = await this.resolveDependencies(version, ctx, projectIds, versionIds, disabledProjectIds, options)
     for (const dep of dependencyVersions) plan.push({ version: dep, kind: 'dependency' })
     const dir = modsDir(ctx.gameDir)
     await mkdir(dir, { recursive: true })
     const installed: string[] = []
     const skipped: string[] = []
     const dependencies: string[] = []
-    const downloads: RemoteFile[] = []
+    const downloads: ModDownload[] = []
     const staged: Array<{ version: ModrinthVersion; kind: 'target' | 'dependency' }> = []
     for (const item of plan) {
+      if (basename(item.version.file.fileName) !== item.version.file.fileName || /[\\/:]/.test(item.version.file.fileName)) throw new Error('下载来源返回了无效的 Mod 文件名')
       if (names.has(item.version.file.fileName.toLowerCase())) {
+        if (!files.some((file) => file.file.toLowerCase() === item.version.file.fileName.toLowerCase() && file.sha1 === item.version.file.sha1)) throw new Error(`${item.version.file.fileName} 已有同名但内容不同的文件，请先在 Mod 管理中确认`)
         skipped.push(item.version.file.fileName)
         continue
       }
-      downloads.push({ url: item.version.file.url, dest: join(dir, item.version.file.fileName), sha1: item.version.file.sha1, size: item.version.file.size })
+      downloads.push({ url: item.version.file.url, file: item.version.file.fileName, sha1: item.version.file.sha1, size: item.version.file.size })
       staged.push(item)
     }
     if (downloads.length > 0) {
-      await downloadFiles(downloads, {
+      await commitModDownloads(ctx.gameDir, ctx.versionId, downloads, {
         source: 'official',
         ...(options.signal ? { signal: options.signal } : {}),
         ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}),
@@ -335,38 +330,51 @@ export class ModsManager {
     version: ModrinthVersion,
     ctx: InstanceContext,
     installedProjectIds: Set<string>,
+    installedVersionIds: Set<string>,
+    disabledProjectIds: Set<string>,
     options: ModWorkOptions
   ): Promise<ModrinthVersion[]> {
-    const required = version.dependencies.filter((dep) => dep.kind === 'required')
-    if (required.length === 0) return []
-    options.onProgress?.({ done: 0, total: 2, unit: 'steps' }, '查找前置 Mod')
-    const byId = required.map((dep) => dep.versionId).filter((id): id is string => !!id)
-    const exact = byId.length > 0 ? await this.client.versionsByIds(byId) : []
     const chosen: ModrinthVersion[] = []
-    const seen = new Set<string>([version.projectId])
-    for (const dep of required) {
-      if (dep.projectId && installedProjectIds.has(dep.projectId)) continue
-      const exactHit = dep.versionId ? exact.find((item) => item.id === dep.versionId) : undefined
-      if (exactHit) {
-        if (seen.has(exactHit.projectId)) continue
-        seen.add(exactHit.projectId)
-        chosen.push(exactHit)
-        continue
+    const selected = new Map<string, ModrinthVersion>([[version.projectId, version]])
+    const visit = async (parent: ModrinthVersion): Promise<void> => {
+      options.signal?.throwIfAborted()
+      if (selected.size > 100) throw new Error('前置依赖数量异常，已停止安装，请检查整合包说明')
+      const required = parent.dependencies.filter((dep) => dep.kind === 'required')
+      const ids = required.map((dep) => dep.versionId).filter((id): id is string => !!id)
+      const exact = ids.length ? await this.client.versionsByIds(ids) : []
+      for (const dep of required) {
+        if (dep.projectId && disabledProjectIds.has(dep.projectId) && !installedProjectIds.has(dep.projectId)) throw new Error('必需前置已被停用，请到 Mod 管理中确认是否启用；不会自动重新启用')
+        if (dep.versionId && installedVersionIds.has(dep.versionId)) continue
+        if (dep.projectId && installedProjectIds.has(dep.projectId)) {
+          if (dep.versionId) throw new Error('已安装的前置版本不符合指定要求，请到 Mod 管理中更新；已保留原文件')
+          continue
+        }
+        const existing = dep.projectId ? selected.get(dep.projectId) : undefined
+        if (existing) {
+          if (dep.versionId && existing.id !== dep.versionId) throw new Error(`不同 Mod 要求 ${existing.name} 的不同版本，请先解决依赖冲突`)
+          continue
+        }
+        let picked = dep.versionId ? exact.find((item) => item.id === dep.versionId) : undefined
+        if (dep.versionId && !picked) throw new Error(`找不到指定的前置版本 ${dep.versionId}，已停止安装`)
+        if (!picked && dep.projectId) picked = (await this.client.versions(dep.projectId, { loader: ctx.loader, minecraft: ctx.minecraftVersion })).filter((item) => this.usable(item, ctx)).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))[0]
+        if (!picked || !this.usable(picked, ctx)) throw new Error(`必需前置 ${dep.projectId ?? dep.fileName ?? '未知'} 没有适合当前游戏或加载器的版本，已停止安装`)
+        const previous = selected.get(picked.projectId)
+        if (previous) {
+          if (previous.id !== picked.id) throw new Error(`前置 ${picked.name} 存在版本冲突，已停止安装`)
+          continue
+        }
+        selected.set(picked.projectId, picked)
+        chosen.push(picked)
+        options.onProgress?.({ done: chosen.length, total: chosen.length + 1, unit: 'steps' }, '检查前置 Mod')
+        await visit(picked)
       }
-      if (!dep.projectId) continue
-      if (seen.has(dep.projectId)) continue
-      const list = await this.client.versions(dep.projectId, { loader: ctx.loader, minecraft: ctx.minecraftVersion })
-      const usable = list.filter((item) => this.usable(item, ctx))
-      const best = usable.sort((a, b) => (b.publishedAt > a.publishedAt ? 1 : -1))[0]
-      if (!best) continue
-      seen.add(best.projectId)
-      chosen.push(best)
     }
+    await visit(version)
     return chosen
   }
 
   private usable(version: ModrinthVersion, ctx: InstanceContext): boolean {
-    if (version.loaders.length > 0 && ctx.loader !== 'vanilla' && !version.loaders.includes(ctx.loader)) return false
+    if (version.loaders.length > 0 && ctx.loader !== 'vanilla' && !version.loaders.includes(ctx.loader) && !(ctx.loader === 'quilt' && version.loaders.includes('fabric'))) return false
     if (ctx.minecraftVersion && version.gameVersions.length > 0 && !version.gameVersions.includes(ctx.minecraftVersion)) return false
     return true
   }

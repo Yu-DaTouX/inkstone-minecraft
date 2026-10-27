@@ -33,6 +33,9 @@ const fixtureDir = join(import.meta.dirname, '..', 'src', 'core', 'crash', 'fixt
 const root = mkdtempSync(join(tmpdir(), 'inkstone-crash-test-'))
 
 const FIXTURES: Array<{ file: string; loader: LoaderKind; rule: string; evidence: string }> = [
+  { file: 'native-memory.log', loader: 'fabric', rule: 'native-memory', evidence: 'Native memory allocation' },
+  { file: 'jvm-arguments.log', loader: 'fabric', rule: 'jvm-arguments', evidence: 'Unrecognized VM option' },
+  { file: 'disk-space.log', loader: 'fabric', rule: 'disk-space', evidence: 'No space left on device' },
   { file: 'java-version.log', loader: 'fabric', rule: 'java-version', evidence: 'UnsupportedClassVersionError' },
   { file: 'out-of-memory.log', loader: 'fabric', rule: 'out-of-memory', evidence: 'OutOfMemoryError' },
   { file: 'corrupt-file.log', loader: 'fabric', rule: 'corrupt-file', evidence: 'invalid LOC header' },

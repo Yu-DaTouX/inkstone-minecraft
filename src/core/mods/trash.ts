@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { ModTrashEntry } from '../../shared/mods-api.ts'
 import { modsDir } from './scan.ts'
 
@@ -29,14 +29,20 @@ async function moveFile(from: string, to: string): Promise<void> {
 }
 
 export async function moveToTrash(gameDir: string, versionId: string, file: string): Promise<ModTrashEntry> {
+  if (basename(file) !== file || /[\\/:]/.test(file) || !/\.jar(\.disabled)?$/i.test(file)) throw new Error('Mod 文件名不合法')
   const source = join(modsDir(gameDir), file)
   const info = await stat(source)
   const id = `${Date.now()}-${randomBytes(3).toString('hex')}`
   const targetDir = join(trashRoot(gameDir), id)
   await mkdir(targetDir, { recursive: true })
   const meta: TrashMeta = { id, name: file.replace(/\.jar(\.disabled)?$/i, ''), file, size: info.size, deletedAt: Date.now(), versionId }
-  await moveFile(source, join(targetDir, file))
   await writeFile(join(targetDir, 'meta.json'), `${JSON.stringify(meta, null, 2)}\n`, 'utf8')
+  try {
+    await moveFile(source, join(targetDir, file))
+  } catch (error) {
+    await rm(targetDir, { recursive: true, force: true })
+    throw error
+  }
   return { id: meta.id, name: meta.name, file: meta.file, size: meta.size, deletedAt: meta.deletedAt, versionId: meta.versionId }
 }
 
@@ -67,6 +73,7 @@ export async function restoreFromTrash(gameDir: string, id: string): Promise<str
   const dir = join(trashRoot(gameDir), id)
   const meta = JSON.parse(await readFile(join(dir, 'meta.json'), 'utf8')) as TrashMeta
   if (!meta?.file) throw new Error('回收站记录缺少文件名')
+  if (basename(meta.file) !== meta.file || /[\\/:]/.test(meta.file) || !/\.jar(\.disabled)?$/i.test(meta.file)) throw new Error('回收站文件名不合法')
   const target = join(modsDir(gameDir), meta.file)
   const exists = await stat(target).then(() => true, () => false)
   if (exists) throw new Error(`mods 里已经有同名文件 ${meta.file}`)

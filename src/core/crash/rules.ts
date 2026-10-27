@@ -10,6 +10,7 @@ export interface RuleContext {
 export interface RuleOutcome {
   summary: string
   missing: string[]
+  requiredJavaMajor?: number
 }
 
 export interface CrashRule {
@@ -44,6 +45,27 @@ function uniq(list: string[]): string[] {
 
 export const CRASH_RULES: CrashRule[] = [
   {
+    id: 'native-memory', title: '系统可用内存不足', loaders: 'all', confidence: 'high',
+    match: [/insufficient memory for the Java Runtime Environment/i, /Could not reserve enough space for object heap/i, /Native memory allocation.*failed/i, /unable to create native thread/i, /The system is out of physical RAM or swap space/i, /OutOfMemoryError: (?:Direct buffer memory|Cannot reserve.*direct buffer memory)/i],
+    evidence: /insufficient memory|Could not reserve|Native memory allocation|unable to create native thread|physical RAM|swap space|direct buffer memory/i,
+    actions: ['memory', 'export'],
+    describe() { return { summary: '系统没有足够的可用内存：关闭占内存的应用，或降低游戏内存上限后重试。继续调高内存可能让问题更严重。', missing: [] } }
+  },
+  {
+    id: 'jvm-arguments', title: 'Java 启动参数不兼容', loaders: 'all', confidence: 'high',
+    match: [/Unrecognized (?:VM )?option:/i, /Conflicting collector combinations/i, /Multiple garbage collectors selected/i, /Invalid (?:maximum|initial) heap size/i, /Improperly specified VM option/i],
+    evidence: /Unrecognized|Conflicting collector|Multiple garbage collectors|Invalid .*heap size|Improperly specified/i,
+    actions: ['settings', 'export'],
+    describe() { return { summary: 'Java 启动参数不兼容：在这个版本的设置中检查自定义 JVM 参数，移除日志指出的参数或重复的垃圾回收器参数，再启动。', missing: [] } }
+  },
+  {
+    id: 'disk-space', title: '磁盘空间或写入权限不足', loaders: 'all', confidence: 'high',
+    match: [/No space left on device/i, /There is not enough space on the disk/i, /磁盘空间不足/, /java\.nio\.file\.AccessDeniedException/],
+    evidence: /No space left|not enough space|磁盘空间不足|AccessDeniedException/i,
+    actions: ['export'],
+    describe() { return { summary: '游戏文件无法写入：检查日志中对应磁盘的剩余空间和文件夹写入权限；关闭占用文件的程序，再重试。', missing: [] } }
+  },
+  {
     id: 'java-version',
     title: 'Java 版本不符',
     loaders: 'all',
@@ -67,7 +89,7 @@ export const CRASH_RULES: CrashRule[] = [
       if (needMajor) parts.push(`这个版本要用 Java ${needMajor}`)
       if (current) parts.push(`当前 Java 是 ${current}`)
       parts.push('换一个 Java 再启动')
-      return { summary: `Java 版本不符：${parts.join('，')}。`, missing: [] }
+      return { summary: `Java 版本不符：${parts.join('，')}。`, missing: [], ...(needMajor ? { requiredJavaMajor: needMajor } : {}) }
     }
   },
   {
@@ -77,9 +99,6 @@ export const CRASH_RULES: CrashRule[] = [
     confidence: 'high',
     match: [
       /OutOfMemoryError/,
-      /insufficient memory for the Java Runtime Environment/,
-      /Could not reserve enough space for object heap/,
-      /Native memory allocation \(malloc\) failed/,
       /Out of memory/i
     ],
     evidence: /OutOfMemoryError|insufficient memory|Could not reserve|malloc|Out of memory/i,
@@ -113,14 +132,18 @@ export const CRASH_RULES: CrashRule[] = [
       /Mod resolution (?:failed|encountered an incompatible mod set)/i,
       /MissingDependencyException/,
       /Incompatible mod set/i,
-      /incompatible mod set for game/i
+      /incompatible mod set for game/i,
+      /requires version .+ of .+, which is (?:missing|not present|not installed|only present|the wrong version)/i,
+      /requires .*but only the wrong version/i,
+      /Mod .*requires .*\n.*Currently,/i
     ],
-    evidence: /requires .*which is missing|Missing or unsupported mandatory dependencies|Mod resolution|MissingDependencyException|Incompatible mod set/i,
+    evidence: /requires |Currently,|Missing or unsupported mandatory dependencies|Mod resolution|MissingDependencyException|Incompatible mod set/i,
     actions: ['install-deps', 'disable-mod', 'mods', 'export'],
     describe({ text, names }) {
       const missing = uniq(
         [
           ...Array.from(text.matchAll(/requires any version of ([\w.-]+), which is missing/gi), (hit) => hit[1]),
+          ...Array.from(text.matchAll(/requires (?:version )?[^\n]+? of ([\w.-]+), which is/gi), (hit) => hit[1]),
           ...Array.from(text.matchAll(/Mod ID: '([\w.-]+)',\s*Requested by: '([\w.-]+)'/g), (hit) => hit[1]),
           ...Array.from(text.matchAll(/Install ([\w.-]+), any version/gi), (hit) => hit[1])
         ].filter((id) => !IGNORED_MISSING.has(id.toLowerCase()))

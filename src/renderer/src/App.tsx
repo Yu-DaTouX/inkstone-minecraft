@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import { Download, Play, Settings } from 'lucide-react'
 import type { LauncherSettings, LaunchStatus } from '../../shared/api.ts'
-import { DownloadPage } from './DownloadPage.tsx'
 import { LaunchPage } from './LaunchPage.tsx'
-import { LogSheet, useGameLogs } from './LogSheet.tsx'
-import { SettingsPage, type SettingsSection } from './SettingsPage.tsx'
+import { GameLogSheet } from './LogSheet.tsx'
+import type { SettingsSection } from './SettingsPage.tsx'
 import { TaskIndicator } from './TaskIndicator.tsx'
-import { VersionPage } from './VersionPage.tsx'
 import { TerrainBand } from './SeedTerrain.tsx'
 import { BlockIcon } from './BlockIcon.tsx'
 import { UpdateBadge } from './UpdatePanel.tsx'
+
+const DownloadPage = lazy(() => import('./DownloadPage.tsx').then((module) => ({ default: module.DownloadPage })))
+const SettingsPage = lazy(() => import('./SettingsPage.tsx').then((module) => ({ default: module.SettingsPage })))
+const VersionPage = lazy(() => import('./VersionPage.tsx').then((module) => ({ default: module.VersionPage })))
 
 /** 页面切换：新页面挂载时自己做进场动画（见 launch.css），这里只负责更新。
  *  不用 View Transitions，因为 view-transition-name 会截断玻璃的背景模糊。 */
@@ -22,6 +24,7 @@ type Page = 'launch' | 'download' | 'settings'
 interface VersionRoute {
   folder: string
   id: string
+  section?: 'mods' | 'repair' | 'settings'
 }
 
 const PAGES = [
@@ -67,7 +70,19 @@ export function App(): ReactElement {
   const [status, setStatus] = useState<LaunchStatus | null>(null)
   const [logOpen, setLogOpen] = useState(false)
   const [world, setWorld] = useState('Inkstone Minecraft')
-  const logs = useGameLogs(status)
+
+  useEffect(() => {
+    const update = (): void => { document.documentElement.dataset.background = document.hidden || !document.hasFocus() ? '1' : '0' }
+    update()
+    document.addEventListener('visibilitychange', update)
+    window.addEventListener('focus', update)
+    window.addEventListener('blur', update)
+    return () => {
+      document.removeEventListener('visibilitychange', update)
+      window.removeEventListener('focus', update)
+      window.removeEventListener('blur', update)
+    }
+  }, [])
 
   useEffect(() => {
     void window.craft.settings().then((loaded) => {
@@ -126,6 +141,7 @@ export function App(): ReactElement {
         </div>
       </header>
       <main className="shell__page" key={page === 'launch' && version ? 'version' : page}>
+        <Suspense fallback={<p className="shell__loading">正在打开页面…</p>}>
         {!settings ? (
           <p className="shell__loading">正在读取设置…</p>
         ) : page === 'launch' && version ? (
@@ -133,6 +149,7 @@ export function App(): ReactElement {
             key={`${version.folder}|${version.id}`}
             folder={version.folder}
             versionId={version.id}
+            initialSection={version.section}
             settings={settings}
             onBack={() => transition(() => setVersion(null))}
             onOpenLogs={() => setLogOpen(true)}
@@ -144,7 +161,7 @@ export function App(): ReactElement {
             status={status}
             apply={apply}
             onImport={() => openSettings('import')}
-            onManage={(folder, id) => transition(() => setVersion({ folder, id }))}
+            onManage={(folder, id, section) => transition(() => setVersion({ folder, id, section }))}
             onOpenLogs={() => setLogOpen(true)}
             onOpenSettings={openSettings}
             onWorld={setWorld}
@@ -154,8 +171,9 @@ export function App(): ReactElement {
         ) : (
           <SettingsPage settings={settings} apply={apply} section={settingsSection} onSection={setSettingsSection} onImported={() => setPage('launch')} />
         )}
+        </Suspense>
       </main>
-      <LogSheet open={logOpen} logs={logs} folder={settings?.selectedFolder ?? null} versionId={status?.versionId ?? settings?.selectedVersion ?? null} onClose={() => setLogOpen(false)} />
+      <GameLogSheet status={status} open={logOpen} folder={settings?.selectedFolder ?? null} versionId={status?.versionId ?? settings?.selectedVersion ?? null} onClose={() => setLogOpen(false)} />
     </div>
   )
 }

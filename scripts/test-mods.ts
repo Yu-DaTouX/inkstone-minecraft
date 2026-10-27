@@ -644,7 +644,7 @@ try {
   })
 
   await test('依赖补全：按范围下载、已存在跳过、选不到说明原因', async () => {
-    const inRange = Buffer.from('dependency-in-range')
+    const inRange = storedZip({ 'fabric.mod.json': JSON.stringify({ schemaVersion: 1, id: 'dependency-mod', version: '0.8.2' }) })
     downloads.set('/dep-0.8.2.jar', inRange)
     route('/project/dependency-mod/version', () => [
       modrinthVersion({

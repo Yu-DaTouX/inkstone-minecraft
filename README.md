@@ -2,6 +2,16 @@
 
 Minecraft Java 版启动器（Electron + React）。从砚（Inkstone）仓库 `integrations/inkstone-minecraft/` 拆出，只含启动器本体；mod 开发核心、伴随 mod 与 agent MCP 留在砚插件侧。
 
+## 启动
+
+双击 `启动.cmd`（或在终端运行 `启动.cmd`）：
+
+- 不带参数：开发模式，改代码自动刷新，关闭窗口即退出
+- `启动.cmd dist`：打开已打包的 `dist\win-unpacked\Inkstone Minecraft.exe`
+- `启动.cmd install`：只安装依赖，不启动
+
+首次运行会自动 `npm install` 并下载 Electron。
+
 ## 开发
 
 ```bash
@@ -16,10 +26,18 @@ npm run dev
 ```bash
 npm run typecheck
 npm run test:all
+# 可选：真实游戏多版本验证，会下载到项目 .tmp 并逐个启动、停止隔离测试实例
+npm run verify:matrix
 npm run build
 ```
 
 `scripts/shot*.ts` 用 CDP 截图走查界面，测试游戏目录用 `INKSTONE_MC_TEST_GAME` 指定（默认 `.tmp/m2b-game`）。数据目录可用 `INKSTONE_MC_DATA` 改到隔离目录。
+
+`npm run test:optimization` 覆盖 JVM 参数、依赖约束与替换保护、诊断、单版本内存恢复，以及不修改 `options.txt` 的边界。
+
+`node --experimental-strip-types scripts/check-runtime.ts final` 在隔离数据中启动真实 Electron，检查深浅主题、900×600、减少动态效果、诊断弹窗与内存应用/恢复，并保存截图和渲染线程采样到 `.local-docs/checks/`。运行状态采样使用测试状态，不代表游戏 FPS。
+
+`node --experimental-strip-types scripts/verify-game.ts` 另行下载一份隔离的 Minecraft 1.21.1 并验证 Java 21 启动，需要联网和已有 Java 21；不会使用用户存档或改变游戏内设置。
 
 ## 正版登录与 Mod 自动刷新
 

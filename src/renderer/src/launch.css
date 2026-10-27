@@ -44,6 +44,12 @@
     scale: 1.14;
   }
 
+  .shell[data-run='running'] .world,
+  :root[data-background='1'] .world,
+  :root[data-background='1'] .world::after {
+    animation-play-state: paused;
+  }
+
   /* 启动游戏时叠一层 F3+G 那样的区块边界线（一个区块 16 格 = 128px），再有一道光往下扫 */
   .world::after {
     content: '';
@@ -1086,6 +1092,9 @@
     min-height: 0;
   }
 
+  .subnav-rail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .subnav-rail > .subnav { flex: 1; }
+
   .subnav {
     position: relative;
     z-index: 2;
@@ -1207,6 +1216,11 @@
     display: grid;
     gap: 10px;
     margin-top: auto;
+    flex: none;
+    padding: 16px 16px 24px;
+    background: var(--glass);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: 1px 0 0 var(--glass-lo);
   }
 
   .subnav-content {

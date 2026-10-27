@@ -6,3 +6,4 @@ dist/
 .local-docs/
 .claude/
 .impeccable/
+!src/core/crash/fixtures/*.log

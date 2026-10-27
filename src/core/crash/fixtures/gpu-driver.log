@@ -1,0 +1,5 @@
+[10:01:22] [main/INFO]: Backend library: LWJGL version 3.3.3+5
+[10:01:23] [Render thread/ERROR]: Failed to create GLFW window
+org.lwjgl.glfw.GLFWErrorCallback$GLFWException: GLFW error before init: [0x10008]Failed to create window: WGL: The driver does not appear to support OpenGL
+	at org.lwjgl.glfw.GLFW.glfwCreateWindow(GLFW.java:2103)
+	at com.mojang.blaze3d.platform.Window.createGlfwWindow(Window.java:150)

@@ -88,6 +88,7 @@ export function SubNavLayout<T extends string>({ label, groups, active, onChange
 
   return (
     <div className="subnav-layout">
+      <aside className="subnav-rail">
       <nav ref={nav} className="subnav" aria-label={label} onKeyDown={onKeyDown}>
         <span ref={thumb} className="subnav__thumb" aria-hidden="true" />
         {onBack ? (
@@ -120,8 +121,9 @@ export function SubNavLayout<T extends string>({ label, groups, active, onChange
             ))}
           </div>
         ))}
-        {footer ? <div className="subnav__footer">{footer}</div> : null}
       </nav>
+      {footer ? <div className="subnav__footer">{footer}</div> : null}
+      </aside>
       {/* 换分区时内容重新挂载，按「落入」节奏重新出现 */}
       <div className="subnav-content" key={active}>
         {children}

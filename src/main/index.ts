@@ -27,7 +27,6 @@ const service = new CraftService({
     },
     decrypt: (value) => safeStorage.decryptString(value)
   }),
-
   pclLauncherDirs: (process.env.INKSTONE_MC_PCL_DIRS ?? '').split(';').filter(Boolean)
 })
 
@@ -207,6 +206,9 @@ function registerIpc(): void {
     installUpdate()
   })
   ipcMain.handle(CRAFT_CHANNELS.systemMemory, () => ({ totalMb: Math.round(totalmem() / 1048576), freeMb: Math.round(freemem() / 1048576) }))
+  ipcMain.handle(CRAFT_CHANNELS.performance, (_event, folder, versionId) => service.performance(folder, versionId))
+  ipcMain.handle(CRAFT_CHANNELS.applyPerformance, (_event, folder, versionId) => service.applyPerformance(folder, versionId))
+  ipcMain.handle(CRAFT_CHANNELS.restorePerformance, (_event, folder, versionId) => service.restorePerformance(folder, versionId))
   ipcMain.handle(CRAFT_CHANNELS.pclSnapshot, () => service.pclSnapshot())
   ipcMain.handle(CRAFT_CHANNELS.importPcl, () => service.importPcl())
   ipcMain.handle(CRAFT_CHANNELS.microsoftBegin, () => service.microsoftBegin())
@@ -246,7 +248,18 @@ function registerIpc(): void {
   ipcMain.handle(CRAFT_CHANNELS.stop, () => service.stop())
   ipcMain.handle(CRAFT_CHANNELS.status, () => service.status())
   ipcMain.handle(CRAFT_CHANNELS.logs, () => service.logs())
-  service.on('log', (line: LogLine) => broadcast(CRAFT_CHANNELS.logEvent, line))
+  let logBatch: LogLine[] = []
+  let logTimer: ReturnType<typeof setTimeout> | null = null
+  const flushLogs = (): void => {
+    if (logTimer) clearTimeout(logTimer)
+    logTimer = null
+    if (logBatch.length) broadcast(CRAFT_CHANNELS.logEvent, logBatch.splice(0))
+  }
+  service.on('log', (line: LogLine) => {
+    logBatch.push(line)
+    if (logBatch.length >= 100) flushLogs()
+    else logTimer ??= setTimeout(flushLogs, 50)
+  })
   service.on('status', (status: LaunchStatus) => broadcast(CRAFT_CHANNELS.statusEvent, status))
   ipcMain.handle(CRAFT_CHANNELS.preflight, (_event, request: unknown) => service.preflight(preflightRequestArg(request)))
   ipcMain.handle(CRAFT_CHANNELS.launchJava, (_event, folder: unknown, versionId: unknown, javaPath: unknown) =>
@@ -359,7 +372,6 @@ function registerModsIpc(): void {
     owned?.get(id)?.()
     owned?.delete(id)
   })
-
   ipcMain.handle(CRAFT_CHANNELS.instanceOverview, (_event, folder: unknown, versionId: unknown) =>
     service.instanceOverview(requiredText(folder, '游戏目录'), requiredText(versionId, '版本名'))
   )

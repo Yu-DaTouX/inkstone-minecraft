@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ModEntry } from '../../shared/mods-api.ts'
 import { ModStore } from './store.ts'
@@ -38,7 +39,7 @@ export function modsDir(gameDir: string): string {
 
 export async function sha1Of(path: string): Promise<string> {
   const hash = createHash('sha1')
-  hash.update(await readFile(path))
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
   return hash.digest('hex')
 }
 

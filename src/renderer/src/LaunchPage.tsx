@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 
 import { FileText, Layers, Settings2, Wrench } from 'lucide-react'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
-import { Notice } from './ui/Notice'
+import { ErrorNotice } from './ui/ErrorNotice'
 import type { InstanceInfo, LauncherSettings, LaunchStatus } from '../../shared/api.ts'
 import type { CrashAction, CrashDiagnosis } from '../../shared/crash-api.ts'
 import type { PreflightReport } from '../../shared/launch-api.ts'
@@ -27,7 +27,7 @@ interface Props {
   status: LaunchStatus | null
   apply(next: Promise<LauncherSettings>): Promise<void>
   onImport(): void
-  onManage(folder: string, versionId: string): void
+  onManage(folder: string, versionId: string, section?: 'mods' | 'repair' | 'settings'): void
   onOpenLogs(): void
   onOpenSettings(section: 'accounts' | 'java' | 'game'): void
   /** 背景地图跟着当前（或正在预览的）版本换种子 */
@@ -184,8 +184,8 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
   const runCrashAction = async (action: CrashAction): Promise<void> => {
     if (!crash || !folder) return
     setCrashResult(null)
-    if (action.kind === 'mods' || action.kind === 'repair') {
-      onManage(folder, crash.versionId)
+    if (action.kind === 'mods' || action.kind === 'repair' || action.kind === 'settings') {
+      onManage(folder, crash.versionId, action.kind)
       setCrash(null)
       return
     }
@@ -302,7 +302,7 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
                       去设置 Java
                     </Button>
                   ) : null}
-                  <Button className={blocked.some((item) => item.id === 'java') ? undefined : 'fix-button'} onPress={() => folder && onManage(folder, report.versionId)}>
+                  <Button className={blocked.some((item) => item.id === 'java' || item.id === 'jvm') ? undefined : 'fix-button'} onPress={() => folder && onManage(folder, report.versionId)}>
                     去修复版本
                   </Button>
                   <Button variant="ghost" onPress={() => setReport(null)}>
@@ -318,8 +318,8 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
               items={warnings.map((item) => `${item.title}${item.detail ? `：${item.detail}` : ''}`)}
               actions={
                 <>
-                  {warnings.some((item) => item.id === 'deps' || item.id === 'duplicates') ? (
-                    <Button className="fix-button" onPress={() => folder && onManage(folder, report.versionId)}>
+                  {warnings.some((item) => item.id === 'deps' || item.id === 'duplicates' || item.id === 'compatibility') ? (
+                    <Button className="fix-button" onPress={() => folder && onManage(folder, report.versionId, 'mods')}>
                       打开 Mod 管理
                     </Button>
                   ) : null}
@@ -347,11 +347,7 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
               }
             />
           ) : null}
-          {error ? (
-            <Notice tone="fail" compact>
-              {error}
-            </Notice>
-          ) : null}
+          {error ? <ErrorNotice error={error} /> : null}
         </div>
         {picker !== 'closed' ? (
           <div className="picker" data-state={picker} onAnimationEnd={(event) => event.target === event.currentTarget && picker === 'closing' && setPicker('closed')}>

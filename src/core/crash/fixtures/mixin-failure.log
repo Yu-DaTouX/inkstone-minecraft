@@ -1,0 +1,5 @@
+[17:44:02] [main/INFO]: Loading Minecraft 1.20.1 with Fabric Loader 0.15.11
+[17:44:03] [main/ERROR]: Mixin apply for mod lithium failed lithium.mixins.json:chunk.ChunkAccessMixin -> net.minecraft.class_2826: org.spongepowered.asm.mixin.injection.throwables.InvalidInjectionException: Critical injection failure
+org.spongepowered.asm.mixin.injection.throwables.InvalidInjectionException: Critical injection failure: @Inject annotation on lithium could not find any targets matching method_1234
+	at org.spongepowered.asm.mixin.injection.struct.InjectionInfo.findMethods(InjectionInfo.java:412)
+	at net.fabricmc.loader.impl.launch.knot.KnotClient.main(KnotClient.java:23)

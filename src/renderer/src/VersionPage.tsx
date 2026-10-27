@@ -21,8 +21,9 @@ import { cleanError, formatSize, ModList } from './ModList.tsx'
 import { MemorySlider } from './MemorySlider.tsx'
 import { ConfirmDialog, Sheet } from './overlays.tsx'
 import { EmptyBlock, PageHead, SubNavLayout, type SubNavGroup } from './SubNavLayout.tsx'
+import { PerformancePane } from './PerformancePane.tsx'
 
-type Section = 'overview' | 'settings' | 'repair' | 'mods' | 'resourcepacks' | 'shaderpacks' | 'saves' | 'screenshots' | 'records'
+type Section = 'overview' | 'settings' | 'performance' | 'repair' | 'mods' | 'resourcepacks' | 'shaderpacks' | 'saves' | 'screenshots' | 'records'
 
 const GROUPS: SubNavGroup<Section>[] = [
   {
@@ -30,6 +31,7 @@ const GROUPS: SubNavGroup<Section>[] = [
     items: [
       { id: 'overview', label: '概览', icon: <LayoutDashboard size={20} /> },
       { id: 'settings', label: '设置', icon: <SlidersHorizontal size={20} /> },
+      { id: 'performance', label: '性能', icon: <SlidersHorizontal size={20} /> },
       { id: 'repair', label: '修复', icon: <Wrench size={20} /> }
     ]
   },
@@ -52,6 +54,7 @@ const GROUPS: SubNavGroup<Section>[] = [
 interface Props {
   folder: string
   versionId: string
+  initialSection?: 'mods' | 'repair' | 'settings'
   settings: LauncherSettings
   onBack(): void
   onOpenLogs(): void
@@ -1102,8 +1105,9 @@ function IconGrid({ options, onPick }: { options: InstanceIconOption[]; onPick(o
   )
 }
 
-export function VersionPage({ folder, versionId, settings, onBack, onOpenLogs, onRenamed }: Props): ReactElement {
-  const [section, setSection] = useState<Section>('overview')
+export function VersionPage({ folder, versionId, initialSection, settings, onBack, onOpenLogs, onRenamed }: Props): ReactElement {
+  const [section, setSection] = useState<Section>(initialSection ?? 'overview')
+  const [performanceFooter, setPerformanceFooter] = useState<HTMLDivElement | null>(null)
   const [instance, setInstance] = useState<InstanceInfo | null | undefined>(undefined)
   const [overview, setOverview] = useState<InstanceOverview | null>(null)
   const [javas, setJavas] = useState<JavaEntry[]>([])
@@ -1299,7 +1303,7 @@ export function VersionPage({ folder, versionId, settings, onBack, onOpenLogs, o
   )
 
   return (
-    <SubNavLayout label="版本管理" groups={GROUPS} active={section} onChange={(id) => setSection(id)} header={header} onBack={onBack} backLabel="返回版本列表">
+    <SubNavLayout label="版本管理" groups={GROUPS} active={section} onChange={(id) => setSection(id)} header={header} onBack={onBack} backLabel="返回版本列表" footer={section === 'performance' ? <div ref={setPerformanceFooter} /> : undefined}>
       <div className="subpage">
         {notice ? (
           <Notice tone="stall" compact>
@@ -1373,6 +1377,8 @@ export function VersionPage({ folder, versionId, settings, onBack, onOpenLogs, o
               </SettingSection>
             </>
           )
+        ) : section === 'performance' ? (
+          <PerformancePane folder={folder} versionId={versionId} onChanged={loadInstance} footer={performanceFooter} />
         ) : section === 'repair' ? (
           <RepairPane folder={folder} versionId={versionId} />
         ) : section === 'mods' ? (

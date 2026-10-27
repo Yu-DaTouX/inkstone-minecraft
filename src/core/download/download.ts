@@ -238,10 +238,13 @@ export async function downloadFiles(files: RemoteFile[], options: DownloadOption
       report(basename(file.dest))
     }
   }
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(total, 1)) }, worker)
   try {
-    await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(total, 1)) }, worker))
+    await Promise.all(workers)
   } catch (error) {
     controller.abort()
+    // Do not let callers roll back while another worker still writes a file.
+    await Promise.allSettled(workers)
     if (cancelledByUser(options.signal)) throw abortError()
     throw error
   } finally {

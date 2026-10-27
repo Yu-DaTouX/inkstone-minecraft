@@ -281,9 +281,6 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                 <SettingRow label="最大内存" description="分给游戏的 Java 堆内存上限。版本里没单独设置时用这个。" block>
                   <MemorySlider value={settings.maxMemoryMb} onCommit={(value) => update({ maxMemoryMb: value })} />
                 </SettingRow>
-                <SettingRow label="启动前清理内存" description="拉起游戏前把其他程序暂时不用的内存挪出去，给游戏腾空间。和文件检查同时进行，基本不耽误时间。">
-                  <Switch aria-label="启动前清理内存" isSelected={settings.cleanMemoryOnLaunch} onChange={(value) => update({ cleanMemoryOnLaunch: value })} />
-                </SettingRow>
               </SettingSection>
               <SettingSection title="启动器">
                 <SettingRow label="关闭窗口时退到托盘" description="游戏是独立进程，关掉或退出启动器都不会让游戏退出。">

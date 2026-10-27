@@ -2,7 +2,7 @@ import type { LoaderKind } from './api.ts'
 
 export type CrashConfidence = 'high' | 'medium'
 export type CrashEvidenceSource = 'process' | 'latest.log' | 'crash-report' | 'hs_err'
-export type CrashActionKind = 'install-deps' | 'disable-mod' | 'java' | 'memory' | 'mods' | 'repair' | 'export'
+export type CrashActionKind = 'install-deps' | 'disable-mod' | 'java' | 'memory' | 'mods' | 'repair' | 'settings' | 'export'
 
 export interface CrashEvidence {
   source: CrashEvidenceSource
