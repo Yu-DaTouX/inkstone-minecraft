@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { InstanceInfo, JavaEntry, LoaderKind } from '../src/shared/api.ts'
 import type { CrashRuleMatch } from '../src/shared/crash-api.ts'
@@ -252,11 +252,14 @@ try {
   })
 
   await test('导出前把令牌和用户目录打码', () => {
-    const masked = maskSecrets('--accessToken abc123 --username Steve accessToken=zzz123 C:\\Users\\YuDaTou\\AppData\\Roaming\\.minecraft /home/steve/.minecraft')
+    const currentProfile = join(homedir(), 'AppData', 'Roaming', '.minecraft')
+    const masked = maskSecrets(`--accessToken abc123 --username Steve accessToken=zzz123 ${currentProfile} C:\\Users\\FixtureUser\\AppData\\Roaming\\.minecraft /home/steve/.minecraft`)
     assert.ok(!masked.includes('abc123'))
     assert.ok(!masked.includes('zzz123'))
-    assert.ok(!masked.includes('YuDaTou'))
-    assert.ok(masked.includes('<用户目录>\\AppData'))
+    assert.ok(!masked.includes(homedir()))
+    assert.ok(!masked.includes('FixtureUser'))
+    assert.ok(masked.includes(join('<用户目录>', 'AppData')))
+    assert.ok(masked.includes('C:\\Users\\<用户>\\AppData'))
     assert.ok(masked.includes('/home/<用户>/.minecraft'))
   })
 
