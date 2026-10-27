@@ -108,7 +108,7 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
   const account = current.accounts.find((item) => item.id === current.selectedAccountId) ?? null
   const busy = status?.state === 'starting' || status?.state === 'running'
   const showAdd = adding || current.accounts.length === 0
-  const blocker = !account ? '先添加一个账号' : !canLaunchWith(account) ? '正版与外置登录还在接入，先切到离线账号启动' : !selected ? '先在版本选择里挑一个版本' : ''
+  const blocker = !account ? '先添加一个账号' : !canLaunchWith(account) ? (account.kind === 'microsoft' ? '请先在设置 → 账号中重新登录 Microsoft' : '外置登录还在接入，请选择其他账号') : !selected ? '先在版本选择里挑一个版本' : ''
   const steps = status?.steps ?? []
 
   // 悬停预览稍等一下再换地图，扫过列表时不至于每行都溶解一次
@@ -217,6 +217,7 @@ export function LaunchPage({ settings, status, apply, onImport, onManage, onOpen
             <AddAccount
               canGoBack={current.accounts.length > 0}
               onBack={() => setAdding(false)}
+              onMicrosoft={async (next) => { await apply(Promise.resolve(next)); setAdding(false) }}
               onAddOffline={async (name) => {
                 await apply(window.craft.addOfflineAccount(name))
                 setAdding(false)

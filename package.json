@@ -20,7 +20,8 @@
     "test:version": "node --experimental-strip-types --no-warnings scripts/test-version-ops.ts",
     "test:service": "node --experimental-strip-types --no-warnings scripts/test-service.ts",
     "test:download": "node --experimental-strip-types --no-warnings scripts/test-download.ts",
-    "test:all": "npm test && npm run test:install && npm run test:forge && npm run test:mods && npm run test:crash && npm run test:version && npm run test:service && npm run test:download",
+    "test:auth-watch": "node --experimental-strip-types --no-warnings scripts/test-auth-watch.ts",
+    "test:all": "npm test && npm run test:install && npm run test:forge && npm run test:mods && npm run test:crash && npm run test:version && npm run test:service && npm run test:download && npm run test:auth-watch",
     "icon": "node scripts/make-icon.mjs",
     "dist": "electron-vite build && electron-builder --win --publish never",
     "release": "electron-vite build && electron-builder --win --publish always"

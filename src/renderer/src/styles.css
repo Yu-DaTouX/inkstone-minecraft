@@ -1648,3 +1648,8 @@
     }
   }
 }
+
+.microsoft-login { display: grid; gap: 8px; max-width: 360px; }
+.microsoft-login__code { display: grid; gap: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.microsoft-login__code p { margin: 0; }
+.microsoft-login__value { font-size: 24px; letter-spacing: .12em; user-select: text; }

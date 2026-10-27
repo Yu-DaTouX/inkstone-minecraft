@@ -11,6 +11,7 @@ import { Switch } from './ui/Switch'
 import { MemorySlider } from './MemorySlider.tsx'
 import { version } from '../../../package.json'
 import type { DownloadProbe, DownloadSource, JavaEntry, LauncherSettings, ThemePreference } from '../../shared/api.ts'
+import { MicrosoftLogin } from './MicrosoftLogin.tsx'
 import { ImportPage } from './ImportPage.tsx'
 import { accountKindLabel, accountKindTone, accountStatus } from './labels.ts'
 import { ConfirmDialog } from './overlays.tsx'
@@ -185,8 +186,8 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                 <SettingRow label="离线" description="输入名字即可，只能进单机和离线服务器。">
                   <Badge tone="ok">可用</Badge>
                 </SettingRow>
-                <SettingRow label="Microsoft 正版" description="设备码登录。">
-                  <Badge>开发中</Badge>
+                <SettingRow label="Microsoft 正版" description="用微软设备码登录；凭据由系统加密保存，启动时自动刷新。">
+                  <MicrosoftLogin onSignedIn={(next) => apply(Promise.resolve(next))} />
                 </SettingRow>
                 <SettingRow label="外置登录" description="LittleSkin 等 authlib-injector 皮肤站。">
                   <Badge>开发中</Badge>
@@ -356,7 +357,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
               <PageHead title="Inkstone Minecraft" description={`版本 ${version} · 可独立运行，也可作为砚的插件。`} />
               <UpdateSection />
               <SettingSection title="数据">
-                <SettingRow label="账号" description="只保存类型、名字、UUID 与皮肤站地址；正版与外置登录的令牌接入后会加密保存。" />
+                <SettingRow label="账号" description="账号列表保存名字与 UUID；Microsoft 刷新凭据由系统加密单独保存，移除账号时删除。" />
                 <SettingRow label="删除" description="删除版本、Mod 与存档时移到回收站。" />
               </SettingSection>
               <SettingSection title="致谢与许可">

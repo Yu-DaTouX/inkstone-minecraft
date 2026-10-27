@@ -28,6 +28,15 @@ const api: CraftApi = {
   onUpdate: (listener) => subscribe<UpdateStatus>(CRAFT_CHANNELS.updateEvent, listener),
   pclSnapshot: () => ipcRenderer.invoke(CRAFT_CHANNELS.pclSnapshot),
   importPcl: () => ipcRenderer.invoke(CRAFT_CHANNELS.importPcl),
+  microsoftBegin: () => ipcRenderer.invoke(CRAFT_CHANNELS.microsoftBegin),
+  microsoftFinish: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.microsoftFinish, id),
+  microsoftCancel: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.microsoftCancel, id),
+  watchMods: (folder, versionId, listener) => {
+    const id = globalThis.crypto.randomUUID()
+    const unsubscribe = subscribe<string>(CRAFT_CHANNELS.modsChanged, (next) => { if (next === id) listener() })
+    ipcRenderer.send(CRAFT_CHANNELS.modsWatch, id, folder, versionId)
+    return () => { unsubscribe(); ipcRenderer.send(CRAFT_CHANNELS.modsUnwatch, id) }
+  },
   addOfflineAccount: (name) => ipcRenderer.invoke(CRAFT_CHANNELS.addOfflineAccount, name),
   removeAccount: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.removeAccount, id),
   selectAccount: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.selectAccount, id),

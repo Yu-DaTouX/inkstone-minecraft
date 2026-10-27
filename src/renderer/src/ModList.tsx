@@ -120,17 +120,21 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
   const [dragging, setDragging] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
   const [task, setTask] = useState<TaskInfo | null>(null)
+  const loadRevision = useRef(0)
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
 
-  const load = useCallback((): void => {
-    setLoading(true)
+  const load = useCallback((background = false): void => {
+    const revision = ++loadRevision.current
+    if (!background) setLoading(true)
     setError('')
     void window.craft.modList(folder, versionId).then(
       (result) => {
+        if (revision !== loadRevision.current) return
         setData(result)
         setLoading(false)
       },
       (cause: unknown) => {
+        if (revision !== loadRevision.current) return
         setError(cleanError(cause))
         setLoading(false)
       }
@@ -143,7 +147,11 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
     setNotice('')
     setSelected(new Set())
     load()
-  }, [load])
+    const refresh = (): void => { setUpdates(null); load(true) }
+    const stop = window.craft.watchMods(folder, versionId, refresh)
+    window.addEventListener('focus', refresh)
+    return () => { ++loadRevision.current; stop(); window.removeEventListener('focus', refresh) }
+  }, [folder, versionId, load])
 
   useEffect(() => {
     if (!taskId) {
@@ -493,7 +501,7 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
           tone="fail"
           compact
           action={
-            <Button size="sm" onPress={load}>
+            <Button size="sm" onPress={() => load()}>
               重试
             </Button>
           }

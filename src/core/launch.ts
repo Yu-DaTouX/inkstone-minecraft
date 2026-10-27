@@ -4,10 +4,13 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createMinecraftProcessWatcher, generateArguments, launch, Version, type LaunchOption, type ResolvedVersion } from '@xmcl/core'
 import { offline } from '@xmcl/user'
+import type { MinecraftSession } from './microsoft.ts'
 import type { LogLine } from '../shared/api.ts'
 import type { LaunchStep, LaunchStepId, LaunchStepProgress } from '../shared/launch-api.ts'
 
 export interface OfflineLaunchOptions {
+  session?: MinecraftSession
+
   folder: string
   versionId: string
   username: string
@@ -99,9 +102,11 @@ async function buildLaunchOption(options: OfflineLaunchOptions, version: Resolve
     resourcePath: options.folder,
     version,
     javaPath: options.javaPath,
-    gameProfile: auth.selectedProfile,
-    accessToken: auth.accessToken,
-    userType: 'legacy',
+    gameProfile: options.session ? { id: options.session.account.uuid, name: options.session.account.name } : auth.selectedProfile,
+    accessToken: options.session?.accessToken ?? auth.accessToken,
+    // XMCL defaults to "msa"; its current declarations only list the older types.
+    userType: options.session ? undefined : 'legacy',
+    ...(options.session ? { features: { microsoft: { auth_xuid: options.session.xuid, clientid: options.session.clientId } } } : {}),
     launcherName: LAUNCHER_NAME,
     launcherBrand: LAUNCHER_NAME,
     maxMemory: options.maxMemoryMb,
@@ -116,7 +121,8 @@ async function buildLaunchOption(options: OfflineLaunchOptions, version: Resolve
 
 export async function describeLaunchCommand(options: OfflineLaunchOptions): Promise<string[]> {
   const version = useOwnVersionJar(options.folder, await Version.parse(options.folder, options.versionId))
-  return generateArguments(await buildLaunchOption(options, version, options.username))
+  const args = await generateArguments(await buildLaunchOption(options, version, options.username))
+  return args.map((arg, index) => args[index - 1] === '--accessToken' ? '***' : arg)
 }
 
 export async function launchOffline(options: OfflineLaunchOptions, events: LaunchEvents): Promise<ChildProcess> {

@@ -63,6 +63,7 @@ export function normalizeSettings(raw: unknown): LauncherSettings {
     selectedFolder: typeof value.selectedFolder === 'string' ? value.selectedFolder : null,
     selectedVersion: typeof value.selectedVersion === 'string' ? value.selectedVersion : null,
     accounts: list,
+    microsoftClientId: typeof value.microsoftClientId === 'string' ? value.microsoftClientId.trim() : '',
     selectedAccountId: selected,
     maxMemoryMb: Number.isFinite(memory) && memory >= 512 && memory <= 65536 ? Math.round(memory) : DEFAULT_SETTINGS.maxMemoryMb,
     extraJavaPaths: Array.isArray(value.extraJavaPaths) ? value.extraJavaPaths.filter((path): path is string => typeof path === 'string') : [],

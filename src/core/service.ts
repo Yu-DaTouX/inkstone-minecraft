@@ -10,6 +10,9 @@ import type { LaunchEffective, LaunchStep, LaunchStepId, PreflightReport, Prefli
 import type { LoaderKind } from '../shared/api.ts'
 import type { ContentCategory, ContentInstallRequest, ContentSearchQuery, ModpackInstallRequest, ModpackSummary } from '../shared/download-api.ts'
 import type { InstanceOverride, InstanceOverview, ModBatchResult, ModInstallRequest, ModListResult, ModrinthProject, ModrinthSearchQuery, ModrinthSearchResult, ModrinthVersion, ModUpdateCheckResult, ModUpdateRequest } from '../shared/mods-api.ts'
+import { MicrosoftAccounts } from './microsoft.ts'
+import type { MinecraftSession } from './microsoft.ts'
+import { MICROSOFT_CLIENT_ID } from '../shared/microsoft-config.ts'
 import { accountFromPcl, mergeAccounts, offlineAccount, validOfflineName } from './accounts.ts'
 import { InstanceIconCache } from './instance-icons.ts'
 import { buildOverview, directorySize, EMPTY_OVERRIDE, InstanceSettingsStore, lastPlayedAt, resolveSettings } from './instance-settings.ts'
@@ -66,6 +69,8 @@ function validVersionId(id: unknown): id is string {
 }
 
 export interface CraftServiceOptions {
+  microsoft?: MicrosoftAccounts
+
   dataDir?: string
   appData?: string
   pclLauncherDirs?: string[]
@@ -75,6 +80,7 @@ const IDLE: LaunchStatus = { state: 'idle', versionId: null, pid: null, exitCode
 
 export class CraftService extends EventEmitter {
   readonly dataDir: string
+  private readonly microsoft?: MicrosoftAccounts
   private readonly store: SettingsStore
   private readonly appData: string
   private readonly pclLauncherDirs: string[]
@@ -98,6 +104,7 @@ export class CraftService extends EventEmitter {
 
   constructor(options: CraftServiceOptions = {}) {
     super()
+    this.microsoft = options.microsoft
     this.dataDir = options.dataDir ?? dataDir()
     this.store = new SettingsStore(join(this.dataDir, 'settings.json'))
     this.appData = options.appData ?? process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming')
@@ -109,13 +116,31 @@ export class CraftService extends EventEmitter {
     this.customIcons = new InstanceIconStore(this.dataDir)
   }
 
-  settings(): Promise<LauncherSettings> {
-    return this.store.load()
+  async settings(): Promise<LauncherSettings> {
+    const settings = await this.store.load()
+    return { ...settings, accounts: await Promise.all(settings.accounts.map(async (account) => account.kind === 'microsoft'
+      ? { ...account, signedIn: await this.microsoft?.has(account.id) ?? false } : account)) }
   }
+
+  async microsoftBegin() {
+    if (!this.microsoft) throw new Error('当前环境不支持安全保存 Microsoft 凭据')
+    return this.microsoft.begin((await this.store.load()).microsoftClientId || process.env.INKSTONE_MICROSOFT_CLIENT_ID || MICROSOFT_CLIENT_ID)
+  }
+
+  async microsoftFinish(id: string): Promise<LauncherSettings> {
+    if (!this.microsoft) throw new Error('当前环境不支持 Microsoft 登录')
+    const account = await this.microsoft.finish(id)
+    const settings = await this.store.load()
+    const accounts = [...settings.accounts.filter((item) => item.id !== account.id), account]
+    return this.updateSettings({ accounts, selectedAccountId: account.id })
+  }
+
+  microsoftCancel(id?: string): void { this.microsoft?.cancel(id) }
 
   async updateSettings(patch: Partial<LauncherSettings>): Promise<LauncherSettings> {
     if (patch.extraJavaPaths) this.javaCache = null
-    return this.store.update(patch)
+    await this.store.update(patch)
+    return this.settings()
   }
 
   instances(folder: string): Promise<InstanceInfo[]> {
@@ -262,6 +287,7 @@ export class CraftService extends EventEmitter {
   }
 
   async removeAccount(id: string): Promise<LauncherSettings> {
+    if (this.microsoft && await this.microsoft.has(id)) await this.microsoft.remove(id)
     const settings = await this.store.load()
     const accounts = settings.accounts.filter((account) => account.id !== id)
     const index = settings.accounts.findIndex((account) => account.id === id)
@@ -360,7 +386,7 @@ export class CraftService extends EventEmitter {
     const id = accountId ?? settings.selectedAccountId
     const account = settings.accounts.find((item) => item.id === id)
     if (!account) throw new Error('先添加或选择一个账号')
-    if (account.kind !== 'offline') throw new Error(`${account.name} 需要重新登录后才能启动（正版与第三方登录还在开发）`)
+    if (account.kind !== 'offline') throw new Error(`${account.name} 需要重新登录后才能启动`)
     if (!validOfflineName(account.name)) throw new Error('离线用户名只能是 3–16 位字母、数字或下划线')
     return account.name
   }
@@ -467,8 +493,15 @@ export class CraftService extends EventEmitter {
     // 和检查、补文件并行跑，真正拉起进程前最多等它一会儿
     const trimming = settings.cleanMemoryOnLaunch ? trimMemory() : null
     try {
-      const username = request.username ?? this.launchName(settings, request.accountId)
-      this.markStep('account', { state: 'done', detail: `离线账号 ${username}` })
+      this.markStep('account', { state: 'running', detail: '检查登录状态' })
+      const selectedAccount = settings.accounts.find((item) => item.id === (request.accountId ?? settings.selectedAccountId))
+      let session: MinecraftSession | undefined
+      if (!request.username && selectedAccount?.kind === 'microsoft') {
+        if (!this.microsoft) throw new Error('Microsoft 登录不可用，请重新登录')
+        session = await this.microsoft.refresh(selectedAccount, abort.signal)
+      }
+      const username = session?.account.name ?? request.username ?? this.launchName(settings, request.accountId)
+      this.markStep('account', { state: 'done', detail: (session ? '正版账号 ' : '离线账号 ') + username })
       const javaPath = request.javaPath ?? effective.javaPath
       if (!javaPath) throw new Error(`没有找到 Java ${instance.javaMajor ?? ''}，请在设置里添加`)
       this.markStep('java', { state: 'done', detail: javaPath })
@@ -507,6 +540,7 @@ export class CraftService extends EventEmitter {
       const context = await this.crash.begin({ folder, versionId: request.versionId, loader: instance.loader, gameDir, javaPath, maxMemoryMb })
       const autoServer = override.autoEnter === false ? null : resolveSettings(override, pcl, settings).effective.server
       const launchOptions = {
+        session,
         folder,
         versionId: request.versionId,
         username,
@@ -1120,6 +1154,7 @@ export class CraftService extends EventEmitter {
   }
 
   dispose(): void {
+    this.microsoft?.cancel()
     // 启动器退出不带走游戏：只断开监听，进程留着
     this.child?.stdout?.removeAllListeners()
     this.child?.stderr?.removeAllListeners()

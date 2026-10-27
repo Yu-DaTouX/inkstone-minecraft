@@ -1,5 +1,7 @@
 import { useState, type ReactElement } from 'react'
-import { ArrowLeft, Globe, KeyRound, UserRound } from 'lucide-react'
+import type { LauncherSettings } from '../../shared/api.ts'
+import { MicrosoftLogin } from './MicrosoftLogin.tsx'
+import { ArrowLeft, Globe, UserRound } from 'lucide-react'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { TextField } from './ui/TextField'
@@ -10,9 +12,10 @@ interface Props {
   canGoBack: boolean
   onBack(): void
   onAddOffline(name: string): Promise<void>
+  onMicrosoft(settings: LauncherSettings): Promise<void>
 }
 
-export function AddAccount({ canGoBack, onBack, onAddOffline }: Props): ReactElement {
+export function AddAccount({ canGoBack, onBack, onAddOffline, onMicrosoft }: Props): ReactElement {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -65,10 +68,7 @@ export function AddAccount({ canGoBack, onBack, onAddOffline }: Props): ReactEle
         </Button>
       </form>
       <div className="add-account__online">
-        <Button variant="secondary" block icon={<KeyRound size={14} />} isDisabled>
-          微软正版登录
-        </Button>
-        <p className="add-account__hint">等 Mojang 审核通过后开放。</p>
+        <MicrosoftLogin onSignedIn={onMicrosoft} />
         <Button variant="secondary" block icon={<Globe size={14} />} isDisabled>
           LittleSkin · 外置登录
         </Button>

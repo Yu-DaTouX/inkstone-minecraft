@@ -104,6 +104,13 @@ export interface Account {
   signedIn: boolean
 }
 
+export interface MicrosoftLoginCode {
+  id: string
+  userCode: string
+  verificationUri: string
+  expiresAt: number
+}
+
 export interface SkinInfo {
   dataUrl: string | null
   slim: boolean
@@ -140,6 +147,8 @@ export interface SystemMemory {
 }
 
 export interface LauncherSettings {
+  microsoftClientId?: string
+
   folders: GameFolder[]
   selectedFolder: string | null
   selectedVersion: string | null
@@ -233,6 +242,10 @@ export interface CraftApi {
   onUpdate(listener: (status: UpdateStatus) => void): () => void
   pclSnapshot(): Promise<PclSnapshot>
   importPcl(): Promise<LauncherSettings>
+  microsoftBegin(): Promise<MicrosoftLoginCode>
+  microsoftFinish(id: string): Promise<LauncherSettings>
+  microsoftCancel(id: string): Promise<void>
+  watchMods(folder: string, versionId: string, listener: () => void): () => void
   addOfflineAccount(name: string): Promise<LauncherSettings>
   removeAccount(id: string): Promise<LauncherSettings>
   selectAccount(id: string): Promise<LauncherSettings>

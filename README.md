@@ -21,6 +21,14 @@ npm run build
 
 `scripts/shot*.ts` 用 CDP 截图走查界面，测试游戏目录用 `INKSTONE_MC_TEST_GAME` 指定（默认 `.tmp/m2b-game`）。数据目录可用 `INKSTONE_MC_DATA` 改到隔离目录。
 
+## 正版登录与 Mod 自动刷新
+
+在启动页添加账号，或进入「设置 → 账号」，点击「微软正版登录」，取得设备码后打开微软登录页完成授权。启动器内置 Inkstone Minecraft 的 Microsoft 客户端 ID；刷新凭据在主进程中由 Electron `safeStorage` 加密单独保存，启动前刷新并检查 Minecraft Java 所有权和玩家档案。PCL 迁移的正版账号需要在这里重新登录；授权失败会显示错误，不会自动改用离线身份。
+
+Mod 页面会监听当前实例实际使用的 `mods` 目录。外部添加、删除、替换 `.jar` 或改名为 `.jar.disabled` 后自动更新列表；目录不存在或被重建时由每 2 秒的文件状态检查恢复监听，离开页面即停止。返回窗口也会刷新一次；此功能只同步本地列表，不会自动下载 Mod 更新。
+
+`npm run test:auth-watch` 覆盖模拟认证交换、失败/取消、凭据隔离、正版启动参数与真实文件系统监听。`scripts/verify-auth-watch-ui.ts` 在隔离数据下检查真实 Electron 页面（会向微软获取设备码，但不进行账号授权），结果存入 `.local-docs/checks/2026-10-27-auth-watch/`。
+
 ## 打包与自动更新
 
 ```bash

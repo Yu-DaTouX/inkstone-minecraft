@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell, Tray } from 'electron'
 import { existsSync } from 'node:fs'
 import { freemem, totalmem } from 'node:os'
 import { readFile } from 'node:fs/promises'
@@ -11,12 +11,23 @@ import type { ResourceKind } from '../shared/version-api.ts'
 const FOLDER_TARGETS: readonly FolderTarget[] = ['version', 'game', 'mods', 'saves', 'resourcepacks', 'shaderpacks', 'screenshots', 'logs', 'crash-reports']
 import { CRAFT_CHANNELS } from '../shared/channels.ts'
 import { MANIFEST_URL, MIRROR_ORIGIN, USER_AGENT } from '../core/download/sources.ts'
+import { dataDir } from '../core/settings.ts'
+import { MicrosoftAccounts } from '../core/microsoft.ts'
+import { watchMods } from '../core/mods/watch.ts'
 import { CraftService } from '../core/service.ts'
 import { checkForUpdate, installUpdate, startUpdater, updateStatus } from './updater.ts'
 import type { InstanceOverride, ModrinthSearchQuery, ModUpdateInfo } from '../shared/mods-api.ts'
 import type { ContentSearchQuery } from '../shared/download-api.ts'
 
 const service = new CraftService({
+  microsoft: new MicrosoftAccounts(join(dataDir(), 'microsoft-credentials.bin'), {
+    encrypt: (value) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，无法保存正版登录')
+      return safeStorage.encryptString(value)
+    },
+    decrypt: (value) => safeStorage.decryptString(value)
+  }),
+
   pclLauncherDirs: (process.env.INKSTONE_MC_PCL_DIRS ?? '').split(';').filter(Boolean)
 })
 
@@ -198,6 +209,9 @@ function registerIpc(): void {
   ipcMain.handle(CRAFT_CHANNELS.systemMemory, () => ({ totalMb: Math.round(totalmem() / 1048576), freeMb: Math.round(freemem() / 1048576) }))
   ipcMain.handle(CRAFT_CHANNELS.pclSnapshot, () => service.pclSnapshot())
   ipcMain.handle(CRAFT_CHANNELS.importPcl, () => service.importPcl())
+  ipcMain.handle(CRAFT_CHANNELS.microsoftBegin, () => service.microsoftBegin())
+  ipcMain.handle(CRAFT_CHANNELS.microsoftFinish, (_event, id: unknown) => service.microsoftFinish(requiredText(id, '登录会话')))
+  ipcMain.handle(CRAFT_CHANNELS.microsoftCancel, (_event, id: unknown) => service.microsoftCancel(requiredText(id, '登录会话')))
   ipcMain.handle(CRAFT_CHANNELS.addOfflineAccount, (_event, name: string) => service.addOfflineAccount(String(name ?? '')))
   ipcMain.handle(CRAFT_CHANNELS.removeAccount, (_event, id: string) => service.removeAccount(String(id ?? '')))
   ipcMain.handle(CRAFT_CHANNELS.selectAccount, (_event, id: string) => service.selectAccount(String(id ?? '')))
@@ -317,6 +331,35 @@ function crashActionRequestArg(value: unknown): CrashActionRequest {
 }
 
 function registerModsIpc(): void {
+  const subscriptions = new Map<number, Map<string, () => void>>()
+  ipcMain.on(CRAFT_CHANNELS.modsWatch, (event, rawId: unknown, folder: unknown, versionId: unknown) => {
+    const sender = event.sender
+    if (typeof rawId !== 'string' || rawId.length > 80 || typeof folder !== 'string' || typeof versionId !== 'string') return
+    let owned = subscriptions.get(sender.id)
+    if (!owned) {
+      owned = new Map()
+      subscriptions.set(sender.id, owned)
+      const cleanup = (): void => { for (const stop of owned!.values()) stop(); owned!.clear() }
+      sender.on('did-start-loading', cleanup)
+      sender.once('destroyed', () => { cleanup(); subscriptions.delete(sender.id); service.microsoftCancel() })
+    }
+    owned.get(rawId)?.()
+    if (owned.size >= 8) return
+    let cancelled = false
+    let stop: (() => void) | undefined
+    owned.set(rawId, () => { cancelled = true; stop?.() })
+    void service.folderPath(folder, versionId, 'mods').then((directory) => {
+      if (cancelled || sender.isDestroyed()) return
+      stop = watchMods(directory, () => { if (!sender.isDestroyed()) sender.send(CRAFT_CHANNELS.modsChanged, rawId) })
+      sender.send(CRAFT_CHANNELS.modsChanged, rawId)
+    }).catch(() => { owned!.get(rawId)?.(); owned!.delete(rawId) })
+  })
+  ipcMain.on(CRAFT_CHANNELS.modsUnwatch, (event, id: string) => {
+    const owned = subscriptions.get(event.sender.id)
+    owned?.get(id)?.()
+    owned?.delete(id)
+  })
+
   ipcMain.handle(CRAFT_CHANNELS.instanceOverview, (_event, folder: unknown, versionId: unknown) =>
     service.instanceOverview(requiredText(folder, '游戏目录'), requiredText(versionId, '版本名'))
   )
