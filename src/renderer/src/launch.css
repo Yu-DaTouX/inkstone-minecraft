@@ -619,6 +619,13 @@
     width: 100%;
   }
 
+  /* 外置登录表单比左栏高时从顶部开始排并可滚动，不裁掉标题和错误 */
+  .rail__account:has(> .add-account) {
+    justify-content: safe center;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
   /* ---------- 地图视窗 ---------- */
   .view {
     position: relative;

@@ -6,11 +6,29 @@ import { createMinecraftProcessWatcher, generateArguments, launch, Version, type
 import { offline } from '@xmcl/user'
 import type { MinecraftSession } from './microsoft.ts'
 import { buildJvmPlan } from './jvm.ts'
-import type { LogLine } from '../shared/api.ts'
+import type { Account, LogLine } from '../shared/api.ts'
 import type { LaunchStep, LaunchStepId, LaunchStepProgress } from '../shared/launch-api.ts'
+
+/** authlib-injector identity: tokens from the Yggdrasil server, the agent jar and the prefetched API metadata. */
+export interface YggdrasilLaunch {
+  account: Account
+  accessToken: string
+  apiRoot: string
+  /** Raw API metadata JSON, passed base64-encoded via -Dauthlibinjector.yggdrasil.prefetched */
+  metadata: string
+  agentJar: string
+}
+
+export function authlibInjectorArgs(yggdrasil: YggdrasilLaunch): string[] {
+  return [
+    `-javaagent:${yggdrasil.agentJar}=${yggdrasil.apiRoot}`,
+    `-Dauthlibinjector.yggdrasil.prefetched=${Buffer.from(yggdrasil.metadata, 'utf8').toString('base64')}`
+  ]
+}
 
 export interface OfflineLaunchOptions {
   session?: MinecraftSession
+  yggdrasil?: YggdrasilLaunch
 
   folder: string
   versionId: string
@@ -93,6 +111,7 @@ async function buildLaunchOption(options: OfflineLaunchOptions, version: Resolve
   const plan = buildJvmPlan(options.javaMajor ?? version.javaVersion?.majorVersion ?? null, options.maxMemoryMb, [...splitArgs(options.jvmArgs), ...(options.extraJVMArgs ?? [])])
   const blocked = plan.issues.filter((issue) => issue.level === 'block')
   if (blocked.length) throw new Error(blocked.map((issue) => issue.message).join('；'))
+  const identity = options.session?.account ?? options.yggdrasil?.account
   const extraMCArgs = splitArgs(options.gameArgs)
   const resolution =
     options.resolution && (options.resolution.width || options.resolution.height || options.resolution.fullscreen)
@@ -107,16 +126,16 @@ async function buildLaunchOption(options: OfflineLaunchOptions, version: Resolve
     resourcePath: options.folder,
     version,
     javaPath: options.javaPath,
-    gameProfile: options.session ? { id: options.session.account.uuid, name: options.session.account.name } : auth.selectedProfile,
-    accessToken: options.session?.accessToken ?? auth.accessToken,
-    // XMCL defaults to "msa"; its current declarations only list the older types.
-    userType: options.session ? undefined : 'legacy',
+    gameProfile: identity ? { id: identity.uuid, name: identity.name } : auth.selectedProfile,
+    accessToken: options.session?.accessToken ?? options.yggdrasil?.accessToken ?? auth.accessToken,
+    // XMCL defaults to "msa"; authlib-injector's launcher spec uses "mojang" for ${user_type}.
+    userType: options.session ? undefined : options.yggdrasil ? 'mojang' : 'legacy',
     ...(options.session ? { features: { microsoft: { auth_xuid: options.session.xuid, clientid: options.session.clientId } } } : {}),
     launcherName: LAUNCHER_NAME,
     launcherBrand: LAUNCHER_NAME,
     maxMemory: plan.customMemory ? undefined : options.maxMemoryMb,
     nativeRoot: join(options.nativeRoot, options.versionId),
-    extraJVMArgs: plan.args,
+    extraJVMArgs: options.yggdrasil && !options.session ? [...authlibInjectorArgs(options.yggdrasil), ...plan.args] : plan.args,
     extraMCArgs: extraMCArgs.length > 0 ? extraMCArgs : undefined,
     resolution,
     // detached：不进启动器的 Job，关掉启动器游戏照常运行
@@ -127,7 +146,9 @@ async function buildLaunchOption(options: OfflineLaunchOptions, version: Resolve
 export async function describeLaunchCommand(options: OfflineLaunchOptions): Promise<string[]> {
   const version = useOwnVersionJar(options.folder, await Version.parse(options.folder, options.versionId))
   const args = await generateArguments(await buildLaunchOption(options, version, options.username))
-  return args.map((arg, index) => args[index - 1] === '--accessToken' ? '***' : arg)
+  const token = options.session?.accessToken ?? options.yggdrasil?.accessToken
+  // Also hide the token where older versions embed it (e.g. --session token:<token>:<uuid>).
+  return args.map((arg, index) => args[index - 1] === '--accessToken' ? '***' : token && token.length >= 6 && arg.includes(token) ? arg.split(token).join('***') : arg)
 }
 
 export async function launchOffline(options: OfflineLaunchOptions, events: LaunchEvents): Promise<ChildProcess> {

@@ -17,4 +17,10 @@
 | [minecraft-launcher-core-node](https://github.com/Voxelum/minecraft-launcher-core-node)（XMCL，提交 `154e2719`）的 `packages/installer/forge.ts`、`neoforge.ts`、`profile.ts` | MIT，Copyright (c) 2023 CI010 | 安装器解包与安装处理器流程按 MIT 许可移植到 `src/core/install/forge-install.ts`、`processors.ts`，并按本项目的下载器、类型与版本 JSON 结构改写（未安装 `@xmcl/installer` 包，其 6.3.6 发布件不可用）。移植部分的文件头保留来源与版权声明。许可原文：<https://github.com/Voxelum/minecraft-launcher-core-node/blob/master/LICENSE> |
 | `@xmcl/core`、`@xmcl/unzip`、`@xmcl/user` | MIT | npm 依赖 |
 
+## 运行时下载（不随启动器分发）
+
+| 组件 | 许可 | 说明 |
+| --- | --- | --- |
+| [authlib-injector](https://github.com/yushijinhun/authlib-injector) | AGPL-3.0 | 外置登录账号启动时，从官方 `authlib-injector.yushi.moe` 或 BMCLAPI 镜像下载最新版并按 sha256 校验，缓存在用户数据目录；以 `-javaagent` 方式加载到游戏进程，启动器不包含、不修改其代码 |
+
 完整许可文本随各自分发包一起保留；升级依赖时请同步核对本表。

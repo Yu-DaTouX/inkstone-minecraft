@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import { Coffee, Download, FolderOpen, FolderPlus, Gauge, Gamepad2, Import, Info, Palette, Plus, RefreshCw, Trash2, UserRound } from 'lucide-react'
+import { Coffee, Download, FolderOpen, FolderPlus, Gauge, Gamepad2, Globe, Import, Info, Palette, Plus, RefreshCw, Trash2, UserRound } from 'lucide-react'
 import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
@@ -12,6 +12,7 @@ import { MemorySlider } from './MemorySlider.tsx'
 import { version } from '../../../package.json'
 import type { DownloadProbe, DownloadSource, JavaEntry, LauncherSettings, ThemePreference } from '../../shared/api.ts'
 import { MicrosoftLogin } from './MicrosoftLogin.tsx'
+import { YggdrasilLogin } from './YggdrasilLogin.tsx'
 import { ImportPage } from './ImportPage.tsx'
 import { accountKindLabel, accountKindTone, accountStatus } from './labels.ts'
 import { ConfirmDialog } from './overlays.tsx'
@@ -59,6 +60,7 @@ const CREDITS = [
   { name: '@xmcl/core、@xmcl/user', note: 'MIT · 启动参数与离线账号' },
   { name: 'Prism Launcher、HMCL', note: 'GPL · 只参考功能结构，没有使用代码' },
   { name: 'PCL', note: '只读取它的配置用于迁移，没有使用代码与素材' },
+  { name: 'authlib-injector', note: 'AGPL-3.0 · 外置登录启动时从官方源或 BMCLAPI 镜像下载，不随启动器分发' },
   { name: 'BMCLAPI', note: '国内下载镜像' },
   { name: 'Modrinth', note: '社区资源' }
 ]
@@ -85,6 +87,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
   const [probeError, setProbeError] = useState('')
   const [pending, setPending] = useState<Pending | null>(null)
   const [busy, setBusy] = useState(false)
+  const [externalLogin, setExternalLogin] = useState(false)
   const [concurrency, setConcurrency] = useState(settings.downloadConcurrency)
   const update = (patch: Partial<LauncherSettings>): void => void apply(window.craft.updateSettings(patch))
 
@@ -189,9 +192,24 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
                 <SettingRow label="Microsoft 正版" description="用微软设备码登录；凭据由系统加密保存，启动时自动刷新。">
                   <MicrosoftLogin onSignedIn={(next) => apply(Promise.resolve(next))} />
                 </SettingRow>
-                <SettingRow label="外置登录" description="LittleSkin 等 authlib-injector 皮肤站。">
-                  <Badge>开发中</Badge>
+                <SettingRow label="外置登录" description="LittleSkin 等 authlib-injector 皮肤站；令牌由系统加密保存，启动前验证。PCL 迁移的外置账号重新登录后合并。">
+                  {externalLogin ? null : (
+                    <Button variant="secondary" icon={<Globe size={18} />} onPress={() => setExternalLogin(true)}>
+                      外置登录
+                    </Button>
+                  )}
                 </SettingRow>
+                {externalLogin ? (
+                  <SettingRow label="登录外置账号" indent block>
+                    <YggdrasilLogin
+                      onSignedIn={async (next) => {
+                        await apply(Promise.resolve(next))
+                        setExternalLogin(false)
+                      }}
+                      onCancel={() => setExternalLogin(false)}
+                    />
+                  </SettingRow>
+                ) : null}
               </SettingSection>
             </>
           ) : section === 'folders' ? (
@@ -354,7 +372,7 @@ export function SettingsPage({ settings, apply, section, onSection, onImported }
               <PageHead title="Inkstone Minecraft" description={`版本 ${version} · 可独立运行，也可作为砚的插件。`} />
               <UpdateSection />
               <SettingSection title="数据">
-                <SettingRow label="账号" description="账号列表保存名字与 UUID；Microsoft 刷新凭据由系统加密单独保存，移除账号时删除。" />
+                <SettingRow label="账号" description="账号列表保存名字与 UUID；Microsoft 刷新凭据与外置登录令牌由系统加密单独保存，移除账号时删除；密码不保存。" />
                 <SettingRow label="删除" description="删除版本、Mod 与存档时移到回收站。" />
               </SettingSection>
               <SettingSection title="致谢与许可">

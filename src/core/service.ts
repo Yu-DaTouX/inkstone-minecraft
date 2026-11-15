@@ -12,6 +12,10 @@ import type { ContentCategory, ContentInstallRequest, ContentSearchQuery, Modpac
 import type { InstanceOverride, InstanceOverview, ModBatchResult, ModInstallRequest, ModListResult, ModrinthProject, ModrinthSearchQuery, ModrinthSearchResult, ModrinthVersion, ModUpdateCheckResult, ModUpdateRequest } from '../shared/mods-api.ts'
 import { MicrosoftAccounts } from './microsoft.ts'
 import type { MinecraftSession } from './microsoft.ts'
+import { YggdrasilAccounts } from './yggdrasil.ts'
+import { AuthlibInjectorStore } from './authlib-injector.ts'
+import type { YggdrasilLoginResult } from '../shared/api.ts'
+import { DEFAULT_YGGDRASIL_SERVER } from '../shared/yggdrasil-config.ts'
 import { MICROSOFT_CLIENT_ID } from '../shared/microsoft-config.ts'
 import { accountFromPcl, mergeAccounts, offlineAccount, validOfflineName } from './accounts.ts'
 import { InstanceIconCache } from './instance-icons.ts'
@@ -36,7 +40,7 @@ import { applicableRules } from './crash/rules.ts'
 import { TaskCenter } from './tasks.ts'
 import { listInstances, readInstance } from './instances.ts'
 import { detectJava, pickJava } from './java.ts'
-import { describeLaunchCommand, initialLaunchSteps, launchOffline, splitArgs, updateLaunchStep } from './launch.ts'
+import { describeLaunchCommand, initialLaunchSteps, launchOffline, splitArgs, updateLaunchStep, type YggdrasilLaunch } from './launch.ts'
 import { normalizeFolder, readPclSnapshot, readPclVersionSetup } from './pcl-import.ts'
 import { dataDir, SettingsStore } from './settings.ts'
 import { SkinCache } from './skins.ts'
@@ -72,6 +76,9 @@ function validVersionId(id: unknown): id is string {
 
 export interface CraftServiceOptions {
   microsoft?: MicrosoftAccounts
+  yggdrasil?: YggdrasilAccounts
+  /** Defaults to <dataDir>/authlib-injector */
+  authlibInjector?: AuthlibInjectorStore
 
   dataDir?: string
   appData?: string
@@ -83,6 +90,8 @@ const IDLE: LaunchStatus = { state: 'idle', versionId: null, pid: null, exitCode
 export class CraftService extends EventEmitter {
   readonly dataDir: string
   private readonly microsoft?: MicrosoftAccounts
+  private readonly yggdrasil?: YggdrasilAccounts
+  private readonly authlibInjector: AuthlibInjectorStore
   private readonly store: SettingsStore
   private readonly appData: string
   private readonly pclLauncherDirs: string[]
@@ -111,6 +120,8 @@ export class CraftService extends EventEmitter {
     super()
     this.microsoft = options.microsoft
     this.dataDir = options.dataDir ?? dataDir()
+    this.yggdrasil = options.yggdrasil
+    this.authlibInjector = options.authlibInjector ?? new AuthlibInjectorStore(join(this.dataDir, 'authlib-injector'))
     this.store = new SettingsStore(join(this.dataDir, 'settings.json'))
     this.appData = options.appData ?? process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming')
     this.pclLauncherDirs = options.pclLauncherDirs ?? []
@@ -125,8 +136,34 @@ export class CraftService extends EventEmitter {
   async settings(): Promise<LauncherSettings> {
     const settings = await this.store.load()
     return { ...settings, accounts: await Promise.all(settings.accounts.map(async (account) => account.kind === 'microsoft'
-      ? { ...account, signedIn: await this.microsoft?.has(account.id) ?? false } : account)) }
+      ? { ...account, signedIn: await this.microsoft?.has(account.id) ?? false }
+      : account.kind === 'yggdrasil' ? { ...account, signedIn: await this.yggdrasil?.has(account.id) ?? false } : account)) }
   }
+
+  /** Same id as a PCL-imported account for the same server host and profile, so signing in replaces it. */
+  private async saveYggdrasilAccount(account: Account): Promise<LauncherSettings> {
+    const settings = await this.store.load()
+    const index = settings.accounts.findIndex((item) => item.id === account.id)
+    const accounts = index >= 0 ? settings.accounts.map((item, at) => (at === index ? account : item)) : [...settings.accounts, account]
+    return this.updateSettings({ accounts, selectedAccountId: account.id })
+  }
+
+  async yggdrasilLogin(server: string, username: string, password: string): Promise<YggdrasilLoginResult> {
+    if (!this.yggdrasil) throw new Error('当前环境不支持安全保存外置登录凭据')
+    const outcome = await this.yggdrasil.login(server || DEFAULT_YGGDRASIL_SERVER, username, password)
+    if ('selection' in outcome) return { state: 'select', selection: outcome.selection }
+    this.note(`外置账号 ${outcome.account.name} 已登录（${outcome.account.serverName ?? outcome.account.server}）`)
+    return { state: 'done', settings: await this.saveYggdrasilAccount(outcome.account) }
+  }
+
+  async yggdrasilSelect(pendingId: string, profileId: string): Promise<LauncherSettings> {
+    if (!this.yggdrasil) throw new Error('当前环境不支持外置登录')
+    const account = await this.yggdrasil.select(pendingId, profileId)
+    this.note(`外置账号 ${account.name} 已登录（${account.serverName ?? account.server}）`)
+    return this.saveYggdrasilAccount(account)
+  }
+
+  yggdrasilCancel(pendingId?: string): void { this.yggdrasil?.cancel(pendingId) }
 
   async microsoftBegin() {
     if (!this.microsoft) throw new Error('当前环境不支持安全保存 Microsoft 凭据')
@@ -339,6 +376,7 @@ export class CraftService extends EventEmitter {
 
   async removeAccount(id: string): Promise<LauncherSettings> {
     if (this.microsoft && await this.microsoft.has(id)) await this.microsoft.remove(id)
+    if (this.yggdrasil && await this.yggdrasil.has(id)) await this.yggdrasil.remove(id)
     const settings = await this.store.load()
     const accounts = settings.accounts.filter((account) => account.id !== id)
     const index = settings.accounts.findIndex((account) => account.id === id)
@@ -556,8 +594,21 @@ export class CraftService extends EventEmitter {
         if (!this.microsoft) throw new Error('Microsoft 登录不可用，请重新登录')
         session = await this.microsoft.refresh(selectedAccount, abort.signal)
       }
-      const username = session?.account.name ?? request.username ?? this.launchName(settings, request.accountId)
-      this.markStep('account', { state: 'done', detail: (session ? '正版账号 ' : '离线账号 ') + username })
+      let yggdrasil: YggdrasilLaunch | undefined
+      if (!request.username && selectedAccount?.kind === 'yggdrasil') {
+        if (!this.yggdrasil) throw new Error('外置登录不可用，请重新登录')
+        this.markStep('account', { state: 'running', detail: `验证 ${selectedAccount.serverName ?? '外置'} 登录` })
+        const ygg = await this.yggdrasil.session(selectedAccount, abort.signal)
+        this.markStep('account', { state: 'running', detail: '准备 authlib-injector' })
+        const jar = await this.authlibInjector.ensure({ source: settings.downloadSource, signal: abort.signal })
+        this.note(`authlib-injector ${jar.version}：${ygg.server.apiRoot}`)
+        yggdrasil = { account: ygg.account, accessToken: ygg.accessToken, apiRoot: ygg.server.apiRoot, metadata: ygg.server.metadata, agentJar: jar.path }
+        if (ygg.account.name !== selectedAccount.name || ygg.account.serverName !== selectedAccount.serverName) {
+          await this.updateSettings({ accounts: settings.accounts.map((item) => (item.id === selectedAccount.id ? { ...item, name: ygg.account.name, serverName: ygg.account.serverName } : item)) })
+        }
+      }
+      const username = session?.account.name ?? yggdrasil?.account.name ?? request.username ?? this.launchName(settings, request.accountId)
+      this.markStep('account', { state: 'done', detail: (session ? '正版账号 ' : yggdrasil ? `${yggdrasil.account.serverName ?? '外置'}账号 ` : '离线账号 ') + username })
       const javaPath = request.javaPath ?? effective.javaPath
       if (!javaPath) throw new Error(`没有找到 Java ${instance.javaMajor ?? ''}，请在设置里添加`)
       this.markStep('java', { state: 'done', detail: javaPath })
@@ -600,6 +651,7 @@ export class CraftService extends EventEmitter {
       const autoServer = override.autoEnter === false ? null : resolveSettings(override, pcl, settings).effective.server
       const launchOptions = {
         session,
+        yggdrasil,
         signal: abort.signal,
         folder,
         versionId: request.versionId,
@@ -1225,6 +1277,7 @@ export class CraftService extends EventEmitter {
 
   dispose(): void {
     this.microsoft?.cancel()
+    this.yggdrasil?.cancel()
     // 启动器退出不带走游戏：只断开监听，进程留着
     this.child?.stdout?.removeAllListeners()
     this.child?.stderr?.removeAllListeners()

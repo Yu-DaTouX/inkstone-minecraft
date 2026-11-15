@@ -18,6 +18,8 @@ export interface RemoteFile {
   url: string
   dest: string
   sha1?: string | null
+  /** Checked in addition to sha1 when present (e.g. authlib-injector artifacts). */
+  sha256?: string | null
   size?: number | null
 }
 
@@ -164,10 +166,12 @@ async function writeFromRemote(candidate: UrlCandidate, file: RemoteFile, option
       throw new Error(`大小不符：服务器 ${declared} ≠ 期望 ${file.size}`)
     }
     const hash = createHash('sha1')
+    const hash256 = file.sha256 ? createHash('sha256') : null
     const tap = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         touch()
         hash.update(chunk)
+        hash256?.update(chunk)
         callback(null, chunk)
       }
     })
@@ -178,6 +182,8 @@ async function writeFromRemote(candidate: UrlCandidate, file: RemoteFile, option
     if (file.size && written !== file.size) throw new Error(`大小不符：${written} ≠ ${file.size}`)
     const sha1 = hash.digest('hex')
     if (file.sha1 && sha1 !== file.sha1.toLowerCase()) throw new Error(`sha1 不符：${sha1} ≠ ${file.sha1}`)
+    const sha256 = hash256?.digest('hex')
+    if (file.sha256 && sha256 !== file.sha256.toLowerCase()) throw new Error(`sha256 校验不符：${sha256} ≠ ${file.sha256}`)
     await rm(file.dest, { force: true })
     await rename(temp, file.dest)
     return written

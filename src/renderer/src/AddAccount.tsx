@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import type { LauncherSettings } from '../../shared/api.ts'
 import { MicrosoftLogin } from './MicrosoftLogin.tsx'
+import { YggdrasilLogin } from './YggdrasilLogin.tsx'
 import { ArrowLeft, Globe, UserRound } from 'lucide-react'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
@@ -13,9 +14,11 @@ interface Props {
   onBack(): void
   onAddOffline(name: string): Promise<void>
   onMicrosoft(settings: LauncherSettings): Promise<void>
+  onYggdrasil(settings: LauncherSettings): Promise<void>
 }
 
-export function AddAccount({ canGoBack, onBack, onAddOffline, onMicrosoft }: Props): ReactElement {
+export function AddAccount({ canGoBack, onBack, onAddOffline, onMicrosoft, onYggdrasil }: Props): ReactElement {
+  const [external, setExternal] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -33,6 +36,20 @@ export function AddAccount({ canGoBack, onBack, onAddOffline, onMicrosoft }: Pro
     } finally {
       setBusy(false)
     }
+  }
+
+  if (external) {
+    return (
+      <div className="add-account">
+        <div className="add-account__head">
+          <IconButton aria-label="返回添加账号" size="sm" onPress={() => setExternal(false)}>
+            <ArrowLeft size={16} />
+          </IconButton>
+          <h2 className="add-account__title">外置登录</h2>
+        </div>
+        <YggdrasilLogin compact onSignedIn={onYggdrasil} />
+      </div>
+    )
   }
 
   return (
@@ -69,10 +86,9 @@ export function AddAccount({ canGoBack, onBack, onAddOffline, onMicrosoft }: Pro
       </form>
       <div className="add-account__online">
         <MicrosoftLogin onSignedIn={onMicrosoft} />
-        <Button variant="secondary" block icon={<Globe size={14} />} isDisabled>
+        <Button variant="secondary" block icon={<Globe size={14} />} onPress={() => setExternal(true)}>
           LittleSkin · 外置登录
         </Button>
-        <p className="add-account__hint">正在接入，PCL 迁移来的账号会保留在列表里。</p>
       </div>
     </div>
   )

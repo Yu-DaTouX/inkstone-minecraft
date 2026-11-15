@@ -1677,3 +1677,9 @@
 .microsoft-login__code { display: grid; gap: 8px; font-size: 12px; overflow-wrap: anywhere; }
 .microsoft-login__code p { margin: 0; }
 .microsoft-login__value { font-size: 24px; letter-spacing: .12em; user-select: text; }
+
+.ygg-login { display: grid; gap: 10px; width: 100%; max-width: 420px; min-width: 0; }
+.ygg-login .ui-field { width: 100%; }
+.ygg-login .ui-input { min-width: 0; width: 100%; box-sizing: border-box; }
+.ygg-login__note { margin: 0; color: var(--fg3); font-size: 13px; overflow-wrap: anywhere; }
+.ygg-login__actions { display: flex; flex-wrap: wrap; gap: 8px; }

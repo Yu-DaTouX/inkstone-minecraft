@@ -12,21 +12,27 @@ const FOLDER_TARGETS: readonly FolderTarget[] = ['version', 'game', 'mods', 'sav
 import { CRAFT_CHANNELS } from '../shared/channels.ts'
 import { MANIFEST_URL, MIRROR_ORIGIN, USER_AGENT } from '../core/download/sources.ts'
 import { dataDir } from '../core/settings.ts'
-import { MicrosoftAccounts } from '../core/microsoft.ts'
+import { MicrosoftAccounts, type SecretCodec } from '../core/microsoft.ts'
+import { YggdrasilAccounts } from '../core/yggdrasil.ts'
 import { watchMods } from '../core/mods/watch.ts'
 import { CraftService } from '../core/service.ts'
 import { checkForUpdate, installUpdate, startUpdater, updateStatus } from './updater.ts'
 import type { InstanceOverride, ModrinthSearchQuery, ModUpdateInfo } from '../shared/mods-api.ts'
 import type { ContentSearchQuery } from '../shared/download-api.ts'
 
-const service = new CraftService({
-  microsoft: new MicrosoftAccounts(join(dataDir(), 'microsoft-credentials.bin'), {
+function secretCodec(label: string): SecretCodec {
+  return {
     encrypt: (value) => {
-      if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，无法保存正版登录')
+      if (!safeStorage.isEncryptionAvailable()) throw new Error(`系统安全存储不可用，无法保存${label}`)
       return safeStorage.encryptString(value)
     },
     decrypt: (value) => safeStorage.decryptString(value)
-  }),
+  }
+}
+
+const service = new CraftService({
+  microsoft: new MicrosoftAccounts(join(dataDir(), 'microsoft-credentials.bin'), secretCodec('正版登录')),
+  yggdrasil: new YggdrasilAccounts(join(dataDir(), 'yggdrasil-credentials.bin'), secretCodec('外置登录')),
   pclLauncherDirs: (process.env.INKSTONE_MC_PCL_DIRS ?? '').split(';').filter(Boolean)
 })
 
@@ -214,6 +220,12 @@ function registerIpc(): void {
   ipcMain.handle(CRAFT_CHANNELS.microsoftBegin, () => service.microsoftBegin())
   ipcMain.handle(CRAFT_CHANNELS.microsoftFinish, (_event, id: unknown) => service.microsoftFinish(requiredText(id, '登录会话')))
   ipcMain.handle(CRAFT_CHANNELS.microsoftCancel, (_event, id: unknown) => service.microsoftCancel(requiredText(id, '登录会话')))
+  // The password is passed straight to the Yggdrasil request; it is never stored or logged.
+  ipcMain.handle(CRAFT_CHANNELS.yggdrasilLogin, (_event, server: unknown, username: unknown, password: unknown) =>
+    service.yggdrasilLogin(typeof server === 'string' ? server.trim() : '', requiredText(username, '邮箱或用户名'), typeof password === 'string' ? password : '')
+  )
+  ipcMain.handle(CRAFT_CHANNELS.yggdrasilSelect, (_event, pendingId: unknown, profileId: unknown) => service.yggdrasilSelect(requiredText(pendingId, '登录会话'), requiredText(profileId, '角色')))
+  ipcMain.handle(CRAFT_CHANNELS.yggdrasilCancel, (_event, pendingId: unknown) => service.yggdrasilCancel(requiredText(pendingId, '登录会话')))
   ipcMain.handle(CRAFT_CHANNELS.addOfflineAccount, (_event, name: string) => service.addOfflineAccount(String(name ?? '')))
   ipcMain.handle(CRAFT_CHANNELS.removeAccount, (_event, id: string) => service.removeAccount(String(id ?? '')))
   ipcMain.handle(CRAFT_CHANNELS.selectAccount, (_event, id: string) => service.selectAccount(String(id ?? '')))
@@ -354,7 +366,7 @@ function registerModsIpc(): void {
       subscriptions.set(sender.id, owned)
       const cleanup = (): void => { for (const stop of owned!.values()) stop(); owned!.clear() }
       sender.on('did-start-loading', cleanup)
-      sender.once('destroyed', () => { cleanup(); subscriptions.delete(sender.id); service.microsoftCancel() })
+      sender.once('destroyed', () => { cleanup(); subscriptions.delete(sender.id); service.microsoftCancel(); service.yggdrasilCancel() })
     }
     owned.get(rawId)?.()
     if (owned.size >= 8) return

@@ -32,6 +32,7 @@ const MIRROR_RULES: MirrorRule[] = [
   { origin: 'https://maven.fabricmc.net', mirrorPath: '/maven' },
   { origin: 'https://maven.quiltmc.org/repository/release', mirrorPath: '/maven' },
   { origin: 'https://meta.quiltmc.org', mirrorPath: null },
+  { origin: 'https://authlib-injector.yushi.moe', mirrorPath: '/mirrors/authlib-injector' },
   { origin: 'https://cdn.modrinth.com', mirrorPath: null },
   { origin: 'https://api.modrinth.com', mirrorPath: null }
 ]

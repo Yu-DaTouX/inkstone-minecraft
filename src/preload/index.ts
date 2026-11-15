@@ -34,6 +34,9 @@ const api: CraftApi = {
   microsoftBegin: () => ipcRenderer.invoke(CRAFT_CHANNELS.microsoftBegin),
   microsoftFinish: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.microsoftFinish, id),
   microsoftCancel: (id) => ipcRenderer.invoke(CRAFT_CHANNELS.microsoftCancel, id),
+  yggdrasilLogin: (server, username, password) => ipcRenderer.invoke(CRAFT_CHANNELS.yggdrasilLogin, server, username, password),
+  yggdrasilSelect: (pendingId, profileId) => ipcRenderer.invoke(CRAFT_CHANNELS.yggdrasilSelect, pendingId, profileId),
+  yggdrasilCancel: (pendingId) => ipcRenderer.invoke(CRAFT_CHANNELS.yggdrasilCancel, pendingId),
   watchMods: (folder, versionId, listener) => {
     const id = globalThis.crypto.randomUUID()
     const unsubscribe = subscribe<string>(CRAFT_CHANNELS.modsChanged, (next) => { if (next === id) listener() })

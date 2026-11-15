@@ -111,6 +111,20 @@ export interface MicrosoftLoginCode {
   expiresAt: number
 }
 
+export interface YggdrasilProfileOption {
+  id: string
+  name: string
+}
+
+/** 账号有多个角色时，主进程暂存令牌，界面只拿到角色列表 */
+export interface YggdrasilSelection {
+  pendingId: string
+  serverName: string
+  profiles: YggdrasilProfileOption[]
+}
+
+export type YggdrasilLoginResult = { state: 'done'; settings: LauncherSettings } | { state: 'select'; selection: YggdrasilSelection }
+
 export interface SkinInfo {
   dataUrl: string | null
   slim: boolean
@@ -248,6 +262,10 @@ export interface CraftApi {
   microsoftBegin(): Promise<MicrosoftLoginCode>
   microsoftFinish(id: string): Promise<LauncherSettings>
   microsoftCancel(id: string): Promise<void>
+  /** 密码只用于这次认证，不保存 */
+  yggdrasilLogin(server: string, username: string, password: string): Promise<YggdrasilLoginResult>
+  yggdrasilSelect(pendingId: string, profileId: string): Promise<LauncherSettings>
+  yggdrasilCancel(pendingId: string): Promise<void>
   watchMods(folder: string, versionId: string, listener: () => void): () => void
   addOfflineAccount(name: string): Promise<LauncherSettings>
   removeAccount(id: string): Promise<LauncherSettings>

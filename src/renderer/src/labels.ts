@@ -54,7 +54,7 @@ export function accountKindTone(account: Account): BadgeTone {
 }
 
 export function canLaunchWith(account: Account | null | undefined): boolean {
-  return account?.kind === 'offline' || (account?.kind === 'microsoft' && account.signedIn)
+  return account?.kind === 'offline' || ((account?.kind === 'microsoft' || account?.kind === 'yggdrasil') && account.signedIn)
 }
 
 export function accountStatus(account: Account): string {
