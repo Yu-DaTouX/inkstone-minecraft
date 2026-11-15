@@ -106,7 +106,7 @@ cmd //c mklink /J node_modules "E:\Inkstone\projects\砚启动器\node_modules"
 ### 样式与令牌
 
 - 层级：`design/index.css`（`@layer reset, tokens, base, primitives, patterns, features, utilities`）→ `design/world.css`（本项目对令牌的覆盖，**以它为准**）→ `ui/ui.css` 等组件样式 → `styles.css`、`launch.css` 页面样式。
-- `design/tokens.css` 是从砚复制过来的生成文件，生成脚本不在本仓库。不要手改它，要改令牌就在 `world.css` 里覆盖。
+- `design/tokens.css` 是生成文件，不要手改。来源是 `design/tokens.json`，用 `npm run tokens`（`scripts/design/build-tokens.mjs`）重新生成；`npm run typecheck` 会先校验两者是否一致。本项目自己的视觉差异优先写在 `world.css` 里覆盖；只有改基础令牌（字号、间距、密度等）时才改 `tokens.json`。
 - 颜色只用令牌，主题由 `light-dark()` 自动切换，不写死色值：
   - 中性：`--bg`、`--fg`/`--fg2`/`--fg3`、`--line`/`--line2`、`--hover`、`--sel`、`--field`
   - 绿：`--accent`、`--accent-t`（文字）、`--on-accent`

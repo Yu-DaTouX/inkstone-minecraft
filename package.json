@@ -11,7 +11,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "node scripts/design/build-tokens.mjs --check && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node --experimental-strip-types --no-warnings scripts/test-core.ts",
     "test:install": "node --experimental-strip-types --no-warnings scripts/test-install.ts",
     "test:forge": "node --experimental-strip-types --no-warnings scripts/test-forge.ts",
@@ -27,7 +27,9 @@
     "dist": "electron-vite build && electron-builder --win --publish never",
     "release": "electron-vite build && electron-builder --win --publish always",
     "verify:matrix": "node --experimental-strip-types --no-warnings scripts/verify-matrix.ts",
-    "verify:release": "node --experimental-strip-types --no-warnings scripts/verify-release.ts"
+    "verify:release": "node --experimental-strip-types --no-warnings scripts/verify-release.ts",
+    "tokens": "node scripts/design/build-tokens.mjs",
+    "tokens:check": "node scripts/design/build-tokens.mjs --check"
   },
   "dependencies": {
     "@xmcl/core": "2.16.2",
