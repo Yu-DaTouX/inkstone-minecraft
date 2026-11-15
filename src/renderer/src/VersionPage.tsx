@@ -16,7 +16,7 @@ import type { CrashDiagnosis, CrashRecordSummary } from '../../shared/crash-api.
 import type { InstanceOverride, InstanceOverview } from '../../shared/mods-api.ts'
 import type { InstanceIconOption, InstanceTrashRecord, ResourcePackEntry, SaveEntry, ScreenshotEntry, ServerEntry, ShaderPackEntry, VersionResources } from '../../shared/version-api.ts'
 import { forgetInstanceIcons, InstanceIcon } from './InstanceIcon.tsx'
-import { LOADER_LABEL, memoryLabel } from './labels.ts'
+import { LOADER_LABEL, memoryLabel, taskDetailLabel } from './labels.ts'
 import { cleanError, formatSize, ModList } from './ModList.tsx'
 import { MemorySlider } from './MemorySlider.tsx'
 import { ConfirmDialog, Sheet } from './overlays.tsx'
@@ -167,7 +167,7 @@ function RepairPane({ folder, versionId }: { folder: string; versionId: string }
       ) : null}
       {task ? (
         <div className="install-progress" data-state={task.state}>
-          {task.state === 'running' ? <ProgressBar aria-label="修复进度" label={task.detail ?? '正在检查并修复'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" /> : null}
+          {task.state === 'running' ? <ProgressBar aria-label="修复进度" label={taskDetailLabel(task.detail) ?? '正在检查并修复'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" /> : null}
           {task.state === 'done' ? <Notice tone="ok" compact>{task.detail ?? '文件完整'}</Notice> : null}
           {task.state === 'cancelled' ? (
             <Notice tone="stall" compact>
@@ -460,9 +460,9 @@ function OverviewPane({ overview, trash, onOpen, onGo, onRename, onCopy, onDelet
             复制为新版本
           </Button>
         </SettingRow>
-        <SettingRow label="删除" description="移到游戏目录的 .trash/instances，不会永久删除。">
+        <SettingRow label="删除" description="移到启动器回收站，不会永久删除；可在同一游戏目录下任一版本的概览页恢复。">
           <Button size="sm" variant="danger" icon={<Trash2 size={14} />} onPress={onDelete}>
-            删除到回收站
+            删除
           </Button>
         </SettingRow>
       </SettingSection>
@@ -533,7 +533,7 @@ function ResourcePacksPane({ folder, versionId, onOpen }: ResourcePacksProps): R
     setDeleting(null)
     try {
       replace(await window.craft.resourceDelete(folder, versionId, 'resourcepacks', pack.file))
-      setNotice(`${pack.name} 已移到 .trash/resourcepacks`)
+      setNotice(`已删除 ${pack.name}，可在游戏文件夹的 .trash 里找回`)
     } catch (cause) {
       setNotice(cleanError(cause))
     }
@@ -626,8 +626,8 @@ function ResourcePacksPane({ folder, versionId, onOpen }: ResourcePacksProps): R
           ))}
         </ul>
       )}
-      <ConfirmDialog open={!!deleting} title="删除这个资源包？" confirmLabel="移到 .trash" danger onCancel={() => setDeleting(null)} onConfirm={() => void confirmDelete()}>
-        {deleting ? `${deleting.name}（${deleting.file}）会移到游戏目录的 .trash/resourcepacks，不会永久删除；它也会从已启用列表里去掉。` : ''}
+      <ConfirmDialog open={!!deleting} title="删除这个资源包？" confirmLabel="删除" danger onCancel={() => setDeleting(null)} onConfirm={() => void confirmDelete()}>
+        {deleting ? `${deleting.name}（${deleting.file}）会移到游戏文件夹里的回收站（.trash），并从已启用列表里去掉，不会永久删除。启动器里暂时不能直接恢复资源包，需要时打开概览页的「游戏文件夹」手动移回。` : ''}
       </ConfirmDialog>
     </>
   )
@@ -644,7 +644,7 @@ function ShaderPacksPane({ folder, versionId, onOpen }: ResourcePacksProps): Rea
     setDeleting(null)
     try {
       replace(await window.craft.resourceDelete(folder, versionId, 'shaderpacks', pack.file))
-      setNotice(`${pack.name} 已移到 .trash/shaderpacks`)
+      setNotice(`已删除 ${pack.name}，可在游戏文件夹的 .trash 里找回`)
     } catch (cause) {
       setNotice(cleanError(cause))
     }
@@ -737,8 +737,8 @@ function ShaderPacksPane({ folder, versionId, onOpen }: ResourcePacksProps): Rea
           ))}
         </ul>
       )}
-      <ConfirmDialog open={!!deleting} title="删除这个光影包？" confirmLabel="移到 .trash" danger onCancel={() => setDeleting(null)} onConfirm={() => void confirmDelete()}>
-        {deleting ? `${deleting.name}（${deleting.file}）会移到游戏目录的 .trash/shaderpacks，不会永久删除。` : ''}
+      <ConfirmDialog open={!!deleting} title="删除这个光影包？" confirmLabel="删除" danger onCancel={() => setDeleting(null)} onConfirm={() => void confirmDelete()}>
+        {deleting ? `${deleting.name}（${deleting.file}）会移到游戏文件夹里的回收站（.trash），不会永久删除。启动器里暂时不能直接恢复光影包，需要时打开概览页的「游戏文件夹」手动移回。` : ''}
       </ConfirmDialog>
     </>
   )
@@ -755,7 +755,7 @@ function SavesPane({ folder, versionId, onOpen }: ResourcePacksProps): ReactElem
     setDeleting(null)
     try {
       replace(await window.craft.resourceDelete(folder, versionId, 'saves', save.folder))
-      setNotice(`${save.name} 已移到 .trash/saves`)
+      setNotice(`已删除 ${save.name}，可在游戏文件夹的 .trash 里找回`)
     } catch (cause) {
       setNotice(cleanError(cause))
     }
@@ -835,8 +835,8 @@ function SavesPane({ folder, versionId, onOpen }: ResourcePacksProps): ReactElem
           ))}
         </ul>
       )}
-      <ConfirmDialog open={!!deleting} title="删除这个存档？" confirmLabel="移到 .trash" danger onCancel={() => setDeleting(null)} onConfirm={() => void confirmDelete()}>
-        {deleting ? `${deleting.name}（${deleting.folder}）会移到游戏目录的 .trash/saves，不会永久删除。` : ''}
+      <ConfirmDialog open={!!deleting} title="删除这个存档？" confirmLabel="删除" danger onCancel={() => setDeleting(null)} onConfirm={() => void confirmDelete()}>
+        {deleting ? `${deleting.name}（${deleting.folder}）会移到游戏文件夹里的回收站（.trash），不会永久删除。启动器里暂时不能直接恢复存档，需要时打开概览页的「游戏文件夹」手动移回。` : ''}
       </ConfirmDialog>
     </>
   )
@@ -1426,14 +1426,14 @@ export function VersionPage({ folder, versionId, initialSection, settings, onBac
       <ConfirmDialog
         open={deleteOpen}
         title="删除这个版本？"
-        confirmLabel={busy ? '正在删除…' : '移到回收站'}
+        confirmLabel={busy ? '正在删除…' : '删除'}
         danger
         busy={busy}
         onCancel={() => setDeleteOpen(false)}
         onConfirm={() => void submitDelete()}
       >
         <span className="l4-dialog">
-          <span>{versionId} 会移到游戏目录的 .trash/instances，不会永久删除；版本设置和自定义图标一起移走，概览页的回收站里可以恢复。</span>
+          <span>{versionId} 会连同版本设置和自定义图标一起移到启动器回收站，不会永久删除；可在同一游戏目录下任一版本的概览页「回收站」里恢复。</span>
           {dialogError ? <Notice tone="fail" compact>{dialogError}</Notice> : null}
         </span>
       </ConfirmDialog>

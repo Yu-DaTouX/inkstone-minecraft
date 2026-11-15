@@ -1338,8 +1338,24 @@
   }
 
   @media (max-width: 999px) {
+    /* 窄窗口：操作留在第一行右侧，徽章换到第二行；不让操作挤进复选框那一列把图标和名称推开 */
     .mod-row[data-multi] {
-      grid-template-columns: auto auto minmax(0, 1fr);
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+    }
+
+    .mod-row[data-multi] .mod-row__actions {
+      grid-column: 4;
+      grid-row: 1;
+    }
+
+    .mod-row[data-multi] .mod-row__badges {
+      grid-column: 3 / -1;
+      grid-row: 2;
+      justify-content: flex-start;
+    }
+
+    .mod-row[data-multi] .mod-row__badges:empty {
+      display: none;
     }
   }
 

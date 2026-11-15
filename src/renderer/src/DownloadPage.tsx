@@ -12,7 +12,7 @@ import { Select } from './ui/Select'
 import { Switch } from './ui/Switch'
 import { SearchField, TextField } from './ui/TextField'
 import { SegmentedControl } from './ui/SegmentedControl'
-import { LOADER_BIOME } from './labels.ts'
+import { LOADER_BIOME, taskDetailLabel } from './labels.ts'
 import { BlockIcon } from './BlockIcon.tsx'
 import type { InstallKind, LauncherSettings, LoaderVersion, LoaderVersions, MinecraftVersionEntry, MinecraftVersionList, TaskInfo, TaskProgress } from '../../shared/api.ts'
 import type { ContentCategory, ContentInstallType, ModpackSummary } from '../../shared/download-api.ts'
@@ -414,7 +414,7 @@ function ContentBrowser({ projectType, title, description, icon, emptyTitle }: C
         <div className="install-progress" data-state={task.state}>
           <ProgressBar
             aria-label="安装进度"
-            label={task.detail ?? task.title}
+            label={taskDetailLabel(task.detail) ?? task.title}
             showValue
             value={task.progress && task.progress.total > 0 ? Math.min(100, (task.progress.done / task.progress.total) * 100) : 0}
             isIndeterminate={!task.progress || task.progress.total <= 0}
@@ -746,7 +746,7 @@ function ModpackImport(): ReactElement {
             <div className="install-progress" data-state={task.state} data-unit={task.progress?.unit ?? undefined}>
               {task.state === 'running' || task.state === 'queued' ? (
                 <>
-                  <ProgressBar aria-label="导入进度" label={task.detail ?? '正在导入'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" />
+                  <ProgressBar aria-label="导入进度" label={taskDetailLabel(task.detail) ?? '正在导入'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" />
                   <div className="install-actions">
                     <span className="page__muted">{progressText(task.progress) ?? '正在准备'}</span>
                     <Button size="sm" variant="ghost" onPress={() => void window.craft.cancelTask(task.id)}>
@@ -1042,7 +1042,7 @@ export function DownloadPage({ onWorld }: DownloadPageProps): ReactElement {
         </Button>
         {task && (task.state === 'running' || task.state === 'queued') ? (
           <div className="dock__progress">
-            <ProgressBar aria-label="安装进度" label={task.detail ?? '正在安装'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" />
+            <ProgressBar aria-label="安装进度" label={taskDetailLabel(task.detail) ?? '正在安装'} showValue value={progress ?? 0} isIndeterminate={progress === null} tone="run" />
             <div className="dock__row">
               <span className="page__muted">{progressText(task.progress) ?? '正在准备'}</span>
               <Button size="sm" variant="ghost" onPress={cancel}>

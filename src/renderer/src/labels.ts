@@ -106,3 +106,12 @@ export function taskProgressLabel(task: TaskInfo): string {
   const counts = progress.unit === 'bytes' ? `${sizeLabel(progress.done)} / ${sizeLabel(progress.total)}` : `${progress.done} / ${progress.total} ${TASK_UNIT_LABEL[progress.unit]}`
   return percent === null ? counts : `${counts} · ${percent}%`
 }
+
+// 资源对象按 sha1 命名（assets/objects/xx/<sha1>），下载进度里的“当前文件名”会是一串哈希，换成人能看懂的说法
+const HASH = /\b[0-9a-f]{40}\b/gi
+
+export function taskDetailLabel(detail: string | null | undefined): string | null {
+  if (!detail) return null
+  const text = detail.replace(HASH, '游戏资源文件').trim()
+  return text || null
+}

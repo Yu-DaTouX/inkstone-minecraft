@@ -8,7 +8,7 @@ import { ErrorNotice } from './ui/ErrorNotice'
 import { MeterRing, ProgressBar } from './ui/Progress'
 import { StatusDot } from './ui/StatusDot'
 import type { TaskInfo } from '../../shared/api.ts'
-import { TASK_STATE_LABEL, taskPercent, taskProgressLabel } from './labels.ts'
+import { TASK_STATE_LABEL, taskDetailLabel, taskPercent, taskProgressLabel } from './labels.ts'
 
 const KEEP_FINISHED = 20
 
@@ -77,6 +77,7 @@ export function TaskIndicator(): ReactElement | null {
               {[...tasks].reverse().map((task) => {
                 const active = task.state === 'running' || task.state === 'queued'
                 const progressLabel = taskProgressLabel(task)
+                const detail = taskDetailLabel(task.detail)
                 return (
                   <li key={task.id} className="task-row" data-state={task.state}>
                     <div className="task-row__head">
@@ -94,7 +95,7 @@ export function TaskIndicator(): ReactElement | null {
                       ) : null}
                     </div>
                     {active ? <ProgressBar aria-label={task.title} value={taskPercent(task) ?? 0} isIndeterminate={taskPercent(task) === null} tone="run" /> : null}
-                    {task.error ? <ErrorNotice error={task.error} /> : progressLabel ? <div className="task-row__detail">{progressLabel}{task.detail ? ` · ${task.detail}` : ''}</div> : task.detail ? <div className="task-row__detail">{task.detail}</div> : null}
+                    {task.error ? <ErrorNotice error={task.error} /> : progressLabel ? <div className="task-row__detail">{progressLabel}{detail ? ` · ${detail}` : ''}</div> : detail ? <div className="task-row__detail">{detail}</div> : null}
                   </li>
                 )
               })}

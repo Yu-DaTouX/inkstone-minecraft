@@ -13,6 +13,7 @@ import type { ModrinthHit, ModrinthProject, ModrinthSearchResult, ModrinthSort, 
 import { cleanError, formatSize } from './ModList.tsx'
 import { Sheet } from './overlays.tsx'
 import { EmptyBlock, PageHead } from './SubNavLayout.tsx'
+import { taskDetailLabel } from './labels.ts'
 
 interface Target {
   folder: string
@@ -302,7 +303,7 @@ export function ModSearch({ onInstalled }: Props = {}): ReactElement {
         <div className="install-progress" data-state={task.state}>
           <ProgressBar
             aria-label="安装进度"
-            label={task.detail ?? task.title}
+            label={taskDetailLabel(task.detail) ?? task.title}
             showValue
             value={task.progress && task.progress.total > 0 ? Math.min(100, (task.progress.done / task.progress.total) * 100) : 0}
             isIndeterminate={!task.progress || task.progress.total <= 0}

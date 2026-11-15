@@ -4,6 +4,7 @@ import { Button } from './ui/Button'
 import { ProgressBar } from './ui/Progress'
 import type { LaunchStatus } from '../../shared/api.ts'
 import type { LaunchEffective, LaunchStep, SettingSource } from '../../shared/launch-api.ts'
+import { taskDetailLabel } from './labels.ts'
 
 const SETTING_SOURCE_LABEL: Record<SettingSource, string> = { instance: '单版本设置', pcl: 'PCL 设置', global: '全局' }
 
@@ -72,7 +73,7 @@ export function LaunchCard({ status, steps, effective, runningSince, onCancel, o
               {glyph(step.state)}
             </span>
             <span className="launch-step__label">{step.label}</span>
-            {step.detail ? <span className="launch-step__detail">{step.detail}</span> : null}
+            {taskDetailLabel(step.detail) ? <span className="launch-step__detail">{taskDetailLabel(step.detail)}</span> : null}
             {step.progress ? (
               <ProgressBar
                 aria-label={`${step.label} 进度`}

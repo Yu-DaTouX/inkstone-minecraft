@@ -14,6 +14,7 @@ import type { FolderTarget, TaskInfo } from '../../shared/api.ts'
 import type { ModBatchResult, ModEntry, ModListResult, ModUpdateCheckResult, ModUpdateInfo } from '../../shared/mods-api.ts'
 import { ConfirmDialog } from './overlays.tsx'
 import { EmptyBlock, PageHead } from './SubNavLayout.tsx'
+import { taskDetailLabel } from './labels.ts'
 
 type Filter = 'all' | 'enabled' | 'disabled' | 'updates' | 'issues'
 
@@ -106,7 +107,7 @@ interface Props {
   onOpenFolder(target: FolderTarget): Promise<void>
 }
 
-export function ModList({ folder, versionId, loader, onOpenFolder }: Props): ReactElement {
+export function ModList({ folder, versionId, onOpenFolder }: Props): ReactElement {
   const [data, setData] = useState<ModListResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -251,7 +252,7 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
     setDeleteFiles(null)
     if (files.length === 1) {
       const mod = data?.mods.find((item) => item.file === files[0])
-      await run(() => window.craft.modRemove(folder, versionId, files[0]!), `${mod?.name ?? files[0]} 已移到 .trash，可恢复`)
+      await run(() => window.craft.modRemove(folder, versionId, files[0]!), `已删除 ${mod?.name ?? files[0]}，可在本页下方的回收站恢复`)
       return
     }
     setBatchBusy(true)
@@ -259,7 +260,7 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
       const result = await window.craft.modRemoveMany(folder, versionId, files)
       setData(result.list)
       setSelected(new Set())
-      setNotice(batchNotice('移到 .trash', result))
+      setNotice(`${batchNotice('删除', result)}${result.done.length > 0 ? '，可在本页下方的回收站恢复' : ''}`)
     } catch (cause) {
       setNotice(cleanError(cause))
     } finally {
@@ -473,7 +474,7 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
         <div className="install-progress" data-state={task.state}>
           <ProgressBar
             aria-label="Mod 任务进度"
-            label={task.detail ?? task.title}
+            label={taskDetailLabel(task.detail) ?? task.title}
             showValue
             value={task.progress && task.progress.total > 0 ? Math.min(100, (task.progress.done / task.progress.total) * 100) : 0}
             isIndeterminate={!task.progress || task.progress.total <= 0}
@@ -595,7 +596,7 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
             停用
           </Button>
           <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} isDisabled={batchBusy} onPress={() => setDeleteFiles([...selected])}>
-            移到 .trash
+            删除
           </Button>
           <Button size="sm" variant="ghost" onPress={() => setSelected(new Set())}>
             取消选择
@@ -622,13 +623,13 @@ export function ModList({ folder, versionId, loader, onOpenFolder }: Props): Rea
       <ConfirmDialog
         open={!!deleteFiles}
         title={deleteFiles && deleteFiles.length > 1 ? `删除这 ${deleteFiles.length} 个 Mod？` : '删除这个 Mod？'}
-        confirmLabel={deleteFiles && deleteFiles.length > 1 ? `移到 .trash（${deleteFiles.length} 个）` : '移到 .trash'}
+        confirmLabel={deleteFiles && deleteFiles.length > 1 ? `删除 ${deleteFiles.length} 个` : '删除'}
         danger
         onCancel={() => setDeleteFiles(null)}
         onConfirm={() => void confirmDelete()}
       >
         {deleteFiles
-          ? `${deleteNames.slice(0, 5).join('、')}${deleteNames.length > 5 ? ` 等 ${deleteNames.length} 个文件` : ''}会移到 ${loader === 'vanilla' ? '版本目录' : loader} 的 .trash 文件夹，不会永久删除，可以在回收站里恢复。`
+          ? `${deleteNames.slice(0, 5).join('、')}${deleteNames.length > 5 ? ` 等 ${deleteNames.length} 个文件` : ''} 会移到启动器回收站，不会永久删除，可以在本页下方的「回收站」里恢复。`
           : ''}
       </ConfirmDialog>
     </div>
